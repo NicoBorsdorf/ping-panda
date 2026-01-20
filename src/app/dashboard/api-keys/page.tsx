@@ -23,12 +23,16 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-	type CreateApiKeyResponse,
 	useApiKeys,
 	useCreateApiKey,
 	useDeleteApiKey,
 } from "@/hooks/use-api-keys";
+import type { api } from "@/lib/eden";
 import { cn } from "@/lib/utils";
+
+type CreateApiKeyResponse = NonNullable<
+	Awaited<ReturnType<typeof api.apikeys.post>>["data"]
+>;
 
 function CreateApiKeyModal({
 	isOpen,
@@ -193,13 +197,9 @@ function NewKeyModal({
 function ApiKeyRow({
 	apiKey,
 }: {
-	apiKey: {
-		id: string;
-		name: string;
-		key: string;
-		createdAt: Date;
-		lastUsedAt: Date | null;
-	};
+	apiKey: NonNullable<
+		Awaited<ReturnType<typeof api.apikeys.get>>["data"]
+	>[number];
 }) {
 	const [showKey, setShowKey] = useState(false);
 	const deleteApiKey = useDeleteApiKey();
@@ -214,7 +214,7 @@ function ApiKeyRow({
 				<div>
 					<div className="flex items-center gap-2">
 						<span className="font-medium">{apiKey.name}</span>
-						{apiKey.lastUsedAt && (
+						{apiKey.active && (
 							<Badge className="text-xs" variant="secondary">
 								Active
 							</Badge>

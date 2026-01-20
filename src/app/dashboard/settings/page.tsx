@@ -6,7 +6,6 @@ import {
 	Crown,
 	ExternalLink,
 	Loader2,
-	Mail,
 	MessageSquare,
 	Save,
 	Sparkles,
@@ -24,7 +23,6 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
 	useSettings,
 	useTestWebhook,
@@ -68,15 +66,13 @@ export default function SettingsPage() {
 	const testWebhook = useTestWebhook();
 
 	const [discordWebhook, setDiscordWebhook] = useState("");
-	const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-	const [emailNotifications, setEmailNotifications] = useState(false);
+	const [disableAllEvents, setDisableAllEvents] = useState(false);
 	const [hasChanges, setHasChanges] = useState(false);
 
 	useEffect(() => {
 		if (settings) {
 			setDiscordWebhook(settings.discordWebhookUrl ?? "");
-			setNotificationsEnabled(settings.notificationsEnabled);
-			setEmailNotifications(settings.emailNotifications);
+			setDisableAllEvents(settings.disableAllEvents ?? false);
 		}
 	}, [settings]);
 
@@ -84,17 +80,15 @@ export default function SettingsPage() {
 		if (settings) {
 			const changed =
 				discordWebhook !== (settings.discordWebhookUrl ?? "") ||
-				notificationsEnabled !== settings.notificationsEnabled ||
-				emailNotifications !== settings.emailNotifications;
+				disableAllEvents !== settings.disableAllEvents;
 			setHasChanges(changed);
 		}
-	}, [discordWebhook, notificationsEnabled, emailNotifications, settings]);
+	}, [discordWebhook, disableAllEvents, settings]);
 
 	const handleSave = async () => {
 		await updateSettings.mutateAsync({
-			discordWebhookUrl: discordWebhook || null,
-			notificationsEnabled,
-			emailNotifications,
+			discordWebhookUrl: discordWebhook,
+			disableAllEvents,
 		});
 		setHasChanges(false);
 	};
@@ -216,6 +210,8 @@ export default function SettingsPage() {
 								id="discord-webhook-url"
 								onChange={(e) => setDiscordWebhook(e.target.value)}
 								placeholder="https://discord.com/api/webhooks/..."
+								required
+								type="url"
 								value={discordWebhook}
 							/>
 							<Button
@@ -272,34 +268,8 @@ export default function SettingsPage() {
 							</div>
 						</div>
 						<ToggleSwitch
-							enabled={notificationsEnabled}
-							onChange={setNotificationsEnabled}
-						/>
-					</div>
-
-					<Separator />
-
-					<div className="flex items-center justify-between">
-						<div className="flex items-center gap-3">
-							<div className="flex size-10 items-center justify-center rounded-full bg-muted">
-								<Mail className="size-5 text-muted-foreground" />
-							</div>
-							<div>
-								<div className="flex items-center gap-2">
-									<p className="font-medium text-sm">Email Notifications</p>
-									<Badge className="text-xs" variant="secondary">
-										Pro
-									</Badge>
-								</div>
-								<p className="text-muted-foreground text-xs">
-									Get a daily digest of your events via email
-								</p>
-							</div>
-						</div>
-						<ToggleSwitch
-							disabled
-							enabled={emailNotifications}
-							onChange={setEmailNotifications}
+							enabled={disableAllEvents}
+							onChange={setDisableAllEvents}
 						/>
 					</div>
 				</CardContent>

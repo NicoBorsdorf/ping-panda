@@ -13,13 +13,18 @@ import { api } from "@/lib/eden";
 export default function WelcomePage() {
 	const { isError, refetch, isSuccess, isPending } = useQuery({
 		queryKey: ["user-sync"],
-		queryFn: async () => await api.user.sync.post(),
+		queryFn: async () =>
+			await api.user.sync.post().then((res) => {
+				if (res.status !== 200 || !res.data) {
+					throw new Error("Failed to sync user");
+				}
+
+				return res.data;
+			}),
 		retry: 5,
 		retryDelay: 1000,
 		refetchInterval: (query) => {
-			return query.state.data?.data?.json().then((data) => data.isSynced)
-				? false
-				: 1000;
+			return query.state.data?.isSynced ? false : 1000;
 		},
 	});
 	const router = useRouter();

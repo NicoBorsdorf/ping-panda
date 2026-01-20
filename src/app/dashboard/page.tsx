@@ -5,7 +5,6 @@ import {
 	ArrowRight,
 	Calendar,
 	CheckCircle,
-	Clock,
 	TrendingUp,
 	XCircle,
 	Zap,
@@ -26,6 +25,7 @@ import {
 	useRecentMonitoring,
 } from "@/hooks/use-monitoring";
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "./(shared)/status-badge";
 
 function StatCard({
 	title,
@@ -69,35 +69,6 @@ function StatCard({
 	);
 }
 
-function StatusBadge({ status }: { status: "success" | "failed" | "pending" }) {
-	const config = {
-		success: {
-			label: "Delivered",
-			className: "bg-green-100 text-green-700",
-			icon: CheckCircle,
-		},
-		failed: {
-			label: "Failed",
-			className: "bg-red-100 text-red-700",
-			icon: XCircle,
-		},
-		pending: {
-			label: "Pending",
-			className: "bg-yellow-100 text-yellow-700",
-			icon: Clock,
-		},
-	};
-
-	const { label, className, icon: Icon } = config[status];
-
-	return (
-		<Badge className={cn("gap-1", className)} variant="outline">
-			<Icon className="size-3" />
-			{label}
-		</Badge>
-	);
-}
-
 export default function DashboardPage() {
 	const { data: events, isLoading: eventsLoading } = useEvents();
 	const { data: recentMonitoring, isLoading: monitoringLoading } =
@@ -132,12 +103,6 @@ export default function DashboardPage() {
 					icon={CheckCircle}
 					title="Success Rate"
 					value={`${stats?.successRate ?? 0}%`}
-				/>
-				<StatCard
-					description="average time"
-					icon={Clock}
-					title="Avg. Delivery"
-					value={`${stats?.averageDeliveryTime ?? 0}ms`}
 				/>
 				<StatCard
 					description="configured events"
@@ -194,16 +159,16 @@ export default function DashboardPage() {
 										<div className="flex items-center gap-3">
 											<div
 												className="size-3 rounded-full"
-												style={{ backgroundColor: event.color }}
+												style={{ backgroundColor: event.categoryColor }}
 											/>
 											<div>
 												<p className="font-medium text-sm">{event.name}</p>
 												<p className="text-muted-foreground text-xs">
-													{event.category}
+													{event.categoryName}
 												</p>
 											</div>
 										</div>
-										<Badge variant="secondary">{event.category}</Badge>
+										<Badge variant="secondary">{event.categoryName}</Badge>
 									</div>
 								))}
 							</div>
@@ -253,19 +218,17 @@ export default function DashboardPage() {
 											<div
 												className={cn(
 													"flex size-8 items-center justify-center rounded-full",
-													entry.status === "success"
-														? "bg-green-100"
-														: entry.status === "failed"
-															? "bg-red-100"
-															: "bg-yellow-100",
+													{
+														"bg-green-100": entry.status === "sent",
+														"bg-red-100": entry.status === "failed",
+													},
 												)}
 											>
-												{entry.status === "success" ? (
+												{entry.status === "sent" && (
 													<CheckCircle className="size-4 text-green-600" />
-												) : entry.status === "failed" ? (
+												)}
+												{entry.status === "failed" && (
 													<XCircle className="size-4 text-red-600" />
-												) : (
-													<Clock className="size-4 text-yellow-600" />
 												)}
 											</div>
 											<div className="min-w-0 flex-1">
@@ -273,7 +236,7 @@ export default function DashboardPage() {
 													{entry.eventName}
 												</p>
 												<p className="text-muted-foreground text-xs">
-													{entry.triggeredAt.toLocaleTimeString()}
+													{entry.createdAt.toLocaleTimeString()}
 												</p>
 											</div>
 										</div>

@@ -1,57 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
-// Types
-export interface Event {
-	id: string;
-	name: string;
-	description: string;
-	category: string;
-	color: string;
-	createdAt: Date;
-	updatedAt: Date;
-}
-
-export interface CreateEventInput {
-	name: string;
-	description: string;
-	category: string;
-	color: string;
-}
-
-export interface UpdateEventInput extends Partial<CreateEventInput> {
-	id: string;
-}
-
-// Mock data for development
-const mockEvents: Event[] = [
-	{
-		id: "1",
-		name: "New Sale",
-		description: "Triggered when a new sale is completed",
-		category: "revenue",
-		color: "#faa61a",
-		createdAt: new Date("2024-01-15"),
-		updatedAt: new Date("2024-01-15"),
-	},
-	{
-		id: "2",
-		name: "User Signup",
-		description: "Triggered when a new user signs up",
-		category: "users",
-		color: "#43b581",
-		createdAt: new Date("2024-01-14"),
-		updatedAt: new Date("2024-01-14"),
-	},
-	{
-		id: "3",
-		name: "Subscription Cancelled",
-		description: "Triggered when a subscription is cancelled",
-		category: "revenue",
-		color: "#f04747",
-		createdAt: new Date("2024-01-13"),
-		updatedAt: new Date("2024-01-13"),
-	},
-];
+import type z from "zod";
+import { api } from "@/lib/eden";
+import type { createEventSchema, updateEventSchema } from "@/server/schemas";
 
 // Query keys
 export const eventKeys = {
@@ -67,24 +17,33 @@ export const eventKeys = {
 export function useEvents() {
 	return useQuery({
 		queryKey: eventKeys.lists(),
-		queryFn: async (): Promise<Event[]> => {
-			// TODO: Replace with actual API call
-			// const response = await api.events.get();
-			// return response.data;
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			return mockEvents;
+		queryFn: async () => {
+			return api.event.get().then(({ status, data }) => {
+				if (status !== 200 || !data) {
+					throw new Error("Failed to get events");
+				}
+
+				return data;
+			});
 		},
 	});
 }
 
 // Fetch single event
-export function useEvent(id: string) {
+export function useEvent(id: number) {
 	return useQuery({
-		queryKey: eventKeys.detail(id),
-		queryFn: async (): Promise<Event | undefined> => {
-			// TODO: Replace with actual API call
-			await new Promise((resolve) => setTimeout(resolve, 300));
-			return mockEvents.find((e) => e.id === id);
+		queryKey: eventKeys.detail(id.toString()),
+		queryFn: async () => {
+			return api
+				.event({ id })
+				.get()
+				.then(({ status, data }) => {
+					if (status !== 200 || !data) {
+						throw new Error("Failed to get event");
+					}
+
+					return data;
+				});
 		},
 		enabled: !!id,
 	});
@@ -95,15 +54,14 @@ export function useCreateEvent() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async (input: CreateEventInput): Promise<Event> => {
-			// TODO: Replace with actual API call
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			return {
-				...input,
-				id: Math.random().toString(36).slice(2),
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			};
+		mutationFn: async (input: z.infer<typeof createEventSchema>) => {
+			return await api.event.post(input).then(({ status, data }) => {
+				if (status !== 201 || !data) {
+					throw new Error("Failed to create event");
+				}
+
+				return data;
+			});
 		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: eventKeys.lists() });
@@ -116,20 +74,29 @@ export function useUpdateEvent() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async (input: UpdateEventInput): Promise<Event> => {
-			// TODO: Replace with actual API call
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			const existing = mockEvents.find((e) => e.id === input.id);
-			if (!existing) throw new Error("Event not found");
-			return {
-				...existing,
-				...input,
-				updatedAt: new Date(),
-			};
+		mutationFn: async ({
+			id,
+			input,
+		}: {
+			id: number;
+			input: z.infer<typeof updateEventSchema>;
+		}) => {
+			return await api
+				.event({ id })
+				.put(input)
+				.then(({ status, data }) => {
+					if (status !== 200 || !data) {
+						throw new Error("Failed to update event");
+					}
+
+					return data;
+				});
 		},
 		onSuccess: (data) => {
 			queryClient.invalidateQueries({ queryKey: eventKeys.lists() });
-			queryClient.invalidateQueries({ queryKey: eventKeys.detail(data.id) });
+			queryClient.invalidateQueries({
+				queryKey: eventKeys.detail(data.id.toString()),
+			});
 		},
 	});
 }
@@ -139,9 +106,15 @@ export function useDeleteEvent() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async (_id: string): Promise<void> => {
-			// TODO: Replace with actual API call
-			await new Promise((resolve) => setTimeout(resolve, 500));
+		mutationFn: async (id: number) => {
+			return await api
+				.event({ id })
+				.delete()
+				.then(({ status }) => {
+					if (status !== 200) {
+						throw new Error("Failed to delete event");
+					}
+				});
 		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: eventKeys.lists() });

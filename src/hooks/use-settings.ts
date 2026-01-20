@@ -1,22 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
-// Types
-export interface UserSettings {
-	discordWebhookUrl: string | null;
-	notificationsEnabled: boolean;
-	emailNotifications: boolean;
-	timezone: string;
-}
-
-export interface UpdateSettingsInput extends Partial<UserSettings> {}
-
-// Mock data for development
-const mockSettings: UserSettings = {
-	discordWebhookUrl: "https://discord.com/api/webhooks/*****/******",
-	notificationsEnabled: true,
-	emailNotifications: false,
-	timezone: "Europe/Berlin",
-};
+import type z from "zod";
+import { api } from "@/lib/eden";
+import type { updateUserSettingsSchema } from "@/server/schemas";
 
 // Query keys
 export const settingsKeys = {
@@ -28,10 +13,14 @@ export const settingsKeys = {
 export function useSettings() {
 	return useQuery({
 		queryKey: settingsKeys.user(),
-		queryFn: async (): Promise<UserSettings> => {
-			// TODO: Replace with actual API call
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			return mockSettings;
+		queryFn: async () => {
+			return await api.user.settings.get().then(({ status, data }) => {
+				if (status !== 200 || !data) {
+					throw new Error("Failed to get user settings");
+				}
+
+				return data;
+			});
 		},
 	});
 }
@@ -41,13 +30,8 @@ export function useUpdateSettings() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async (input: UpdateSettingsInput): Promise<UserSettings> => {
-			// TODO: Replace with actual API call
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			return {
-				...mockSettings,
-				...input,
-			};
+		mutationFn: async (input: z.infer<typeof updateUserSettingsSchema>) => {
+			return api.user.settings.put(input);
 		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: settingsKeys.user() });

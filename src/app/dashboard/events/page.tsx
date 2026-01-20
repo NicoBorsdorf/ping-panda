@@ -10,6 +10,8 @@ import {
 	X,
 } from "lucide-react";
 import { useState } from "react";
+import { HexColorPicker } from "react-colorful";
+import type z from "zod";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,22 +22,10 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-	type CreateEventInput,
-	useCreateEvent,
-	useDeleteEvent,
-	useEvents,
-} from "@/hooks/use-events";
+import { useCreateEvent, useDeleteEvent, useEvents } from "@/hooks/use-events";
+import type { api } from "@/lib/eden";
 import { cn } from "@/lib/utils";
-
-const colorOptions = [
-	"#43b581", // Green
-	"#faa61a", // Orange
-	"#5865f2", // Blue
-	"#f04747", // Red
-	"#9b59b6", // Purple
-	"#1abc9c", // Teal
-];
+import type { createEventSchema } from "@/server/schemas";
 
 const categoryOptions = ["revenue", "users", "system", "marketing", "custom"];
 
@@ -46,24 +36,22 @@ function CreateEventModal({
 	isOpen: boolean;
 	onClose: () => void;
 }) {
-	const [formData, setFormData] = useState<CreateEventInput>({
+	const defaultFormData = {
 		name: "",
 		description: "",
 		category: "custom",
-		color: colorOptions[0],
-	});
+		color: "#6991D2",
+		fields: {},
+	};
+	const [formData, setFormData] =
+		useState<z.infer<typeof createEventSchema>>(defaultFormData);
 
 	const createEvent = useCreateEvent();
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		await createEvent.mutateAsync(formData);
-		setFormData({
-			name: "",
-			description: "",
-			category: "custom",
-			color: colorOptions[0],
-		});
+		setFormData(defaultFormData);
 		onClose();
 	};
 
@@ -157,19 +145,12 @@ function CreateEventModal({
 								Color
 							</label>
 							<div className="flex gap-2">
-								{colorOptions.map((color) => (
-									<button
-										className={cn(
-											"size-8 rounded-full transition-transform",
-											formData.color === color &&
-												"ring-2 ring-brand-600 ring-offset-2",
-										)}
-										key={color}
-										onClick={() => setFormData({ ...formData, color })}
-										style={{ backgroundColor: color }}
-										type="button"
-									/>
-								))}
+								<HexColorPicker
+									color={formData.color}
+									onChange={(color) =>
+										setFormData({ ...formData, color: color })
+									}
+								/>
 							</div>
 						</div>
 						<div className="flex justify-end gap-2 pt-4">
@@ -194,14 +175,7 @@ function EventCard({
 	event,
 	onEdit,
 }: {
-	event: {
-		id: string;
-		name: string;
-		description: string;
-		category: string;
-		color: string;
-		createdAt: Date;
-	};
+	event: NonNullable<Awaited<ReturnType<typeof api.event.get>>["data"]>[number];
 	onEdit: () => void;
 }) {
 	const deleteEvent = useDeleteEvent();
@@ -211,14 +185,14 @@ function EventCard({
 		<Card className="relative overflow-hidden">
 			<div
 				className="absolute top-0 left-0 h-full w-1"
-				style={{ backgroundColor: event.color }}
+				style={{ backgroundColor: event.categoryColor }}
 			/>
 			<CardHeader className="pb-2">
 				<div className="flex items-start justify-between">
 					<div className="flex items-center gap-2">
 						<div
 							className="size-3 rounded-full"
-							style={{ backgroundColor: event.color }}
+							style={{ backgroundColor: event.categoryColor }}
 						/>
 						<CardTitle className="text-base">{event.name}</CardTitle>
 					</div>
@@ -271,7 +245,7 @@ function EventCard({
 				<p className="text-muted-foreground text-sm">{event.description}</p>
 				<div className="flex items-center justify-between">
 					<Badge className="capitalize" variant="secondary">
-						{event.category}
+						{event.categoryName}
 					</Badge>
 					<span className="text-muted-foreground text-xs">
 						Created {event.createdAt.toLocaleDateString()}
@@ -290,7 +264,7 @@ export default function EventsPage() {
 	const filteredEvents = events?.filter(
 		(event) =>
 			event.name.toLowerCase().includes(search.toLowerCase()) ||
-			event.category.toLowerCase().includes(search.toLowerCase()),
+			event.categoryName.toLowerCase().includes(search.toLowerCase()),
 	);
 
 	return (
