@@ -1,15 +1,22 @@
+import { clerkClient } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { env } from "@/env";
 import { stripe } from "@/lib/stripe";
+import { tryCatchAsync } from "@/lib/utils";
 import { db } from "@/server/db";
 import { userTable } from "@/server/db/schema";
 
 export async function POST(request: NextRequest) {
 	const body = await request.text();
 	const signature = await headers().then((h) => h.get("stripe-signature"));
+
+	if (!signature) {
+		console.error("No signature provided");
+		return new NextResponse("No signature provided", { status: 400 });
+	}
 
 	let event: Stripe.Event;
 	try {
@@ -21,7 +28,7 @@ export async function POST(request: NextRequest) {
 
 		if (!event) throw new Error("Failed to create stripe event");
 	} catch (error: unknown) {
-		console.error("Error creating stripe event", { body }, error);
+		console.error("Error creating stripe event", { body, error });
 
 		if (error instanceof Stripe.errors.StripeSignatureVerificationError) {
 			return new NextResponse("Invalid signature", { status: 400 });
@@ -30,28 +37,49 @@ export async function POST(request: NextRequest) {
 		return new NextResponse("Error creating stripe event", { status: 500 });
 	}
 
+	const clerk = await clerkClient();
+
 	switch (event.type) {
 		case "checkout.session.completed": {
-			const session = event.data.object as Stripe.Checkout.Session;
+			const userId = event.data.object.metadata?.userId;
 
-			if (!session.metadata?.userId) {
+			if (!userId) {
 				console.error("Invalid event metadata, user id does not match", {
-					session,
+					userId,
 				});
 				return new NextResponse("Invalid event metadata", {
 					status: 400,
 				});
 			}
 
-			await db
-				.update(userTable)
-				.set({
-					plan: "PRO",
-				})
-				.where(eq(userTable.id, session.metadata.userId));
+			const [_, updateUserError] = await tryCatchAsync(async () => {
+				await db.transaction(async (tx) => {
+					await Promise.all([
+						tx
+							.update(userTable)
+							.set({
+								plan: "PRO",
+							})
+							.where(eq(userTable.id, userId)),
+						clerk.users.updateUserMetadata(userId, {
+							publicMetadata: {
+								plan: "PRO",
+							},
+						}),
+					]);
+				});
+			});
+
+			if (updateUserError) {
+				console.error("Error updating user plan", {
+					error: updateUserError,
+					userId,
+				});
+				return new NextResponse("Error updating user plan", { status: 500 });
+			}
 
 			console.info("User plan updated to PRO", {
-				userId: session.metadata.userId,
+				userId,
 			});
 
 			return new NextResponse("User plan updated to PRO", { status: 200 });
@@ -61,6 +89,6 @@ export async function POST(request: NextRequest) {
 				type: event.type,
 				metadata: { ...event.data.object },
 			});
-			return new NextResponse("Unhandled stripe event", { status: 200 });
+			return new NextResponse("Unhandled stripe event", { status: 400 });
 	}
 }

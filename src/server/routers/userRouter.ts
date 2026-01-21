@@ -1,18 +1,18 @@
-import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
+import { env } from "@/env";
+import { DiscordClient } from "@/lib/discord";
 import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
 import { userSettingsTable, userTable } from "../db/schema";
 import { updateUserSettingsSchema } from "../schemas";
+import { getUserId } from "./auth";
 
 export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 	.post("/sync", async ({ status }) => {
-		const { userId } = await auth();
+		const userId = await getUserId();
 
 		if (!userId) {
-			console.error("No user provided.");
-
 			return status(401, { error: "Unauthorized" });
 		}
 
@@ -41,8 +41,6 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 
 				await tx.insert(userSettingsTable).values({
 					userId: user.id,
-					discordWebhookUrl: "https://discord.com/api/webhooks/*****/******",
-					disableAllEvents: false,
 					timezone: "Europe/Berlin",
 				});
 
@@ -59,12 +57,11 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 		return status(200, { isSynced: true });
 	})
 	.get("/settings", async ({ status }) => {
-		const { userId } = await auth();
+		const userId = await getUserId();
+
 		if (!userId) {
-			console.error("No user provided.");
 			return status(401, { error: "Unauthorized" });
 		}
-
 		const [result, error] = await tryCatchAsync(async () => {
 			const [settings] = await db
 				.select()
@@ -99,19 +96,17 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 	.put(
 		"/settings",
 		async ({ status, body }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
+
 			if (!userId) {
-				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
 			}
-
 			const [settings, error] = await tryCatchAsync(async () => {
 				const [settings] = await db
 					.update(userSettingsTable)
 					.set({
-						discordWebhookUrl: body.discordWebhookUrl,
-						disableAllEvents: body.disableAllEvents,
 						timezone: body.timezone,
+						discordUserId: body.discordUserId,
 					})
 					.where(eq(userSettingsTable.userId, userId))
 					.returning();
@@ -128,4 +123,59 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 		{
 			body: updateUserSettingsSchema,
 		},
-	);
+	)
+	.post("/settings/test-discord", async ({ status }) => {
+		const userId = await getUserId();
+
+		if (!userId) {
+			return status(401, { error: "Unauthorized" });
+		}
+		const discordClient = new DiscordClient(env.DISCORD_API_TOKEN);
+
+		const [settings, error] = await tryCatchAsync(async () => {
+			const [settings] = await db
+				.select({
+					discordUserId: userSettingsTable.discordUserId,
+				})
+				.from(userSettingsTable)
+				.where(eq(userSettingsTable.userId, userId))
+				.limit(1);
+
+			if (!settings) return null;
+			return settings;
+		});
+
+		if (error) {
+			console.error("Error getting user settings:", { error, userId });
+			return status(500, { error: "Failed to get user settings" });
+		}
+
+		if (!settings) {
+			return status(404, { error: "User settings not found" });
+		}
+
+		if (!settings.discordUserId) {
+			return status(404, { error: "Discord user ID not found" });
+		}
+
+		const { id: channelId } = await discordClient.createDM(
+			settings.discordUserId,
+		);
+
+		const [_, embedResult] = await tryCatchAsync(async () => {
+			return await discordClient.sendEmbed(channelId, {
+				title: "Test Message",
+				description: "This is a test message",
+			});
+		});
+
+		if (embedResult) {
+			console.error("Error sending test message:", {
+				error: embedResult,
+				userId,
+			});
+			return status(400, { error: "Failed to send test message to Discord" });
+		}
+
+		return status(200, true);
+	});

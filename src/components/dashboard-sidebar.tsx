@@ -13,9 +13,10 @@ import {
 	Settings,
 	X,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -31,10 +32,16 @@ const navigation = [
 export function DashboardSidebar() {
 	const pathname = usePathname();
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+	const [mounted, setMounted] = useState(false);
 	const { user, isLoaded } = useUser();
 
-	// Mock plan status - in real app, fetch from user data
-	const isPro = false;
+	// Prevent hydration mismatch by only rendering user-specific content after mount
+	useEffect(() => {
+		setMounted(true);
+	}, []);
+
+	// Show loading state until mounted to prevent hydration mismatch
+	const showUserInfo = mounted && isLoaded;
 
 	return (
 		<>
@@ -77,9 +84,13 @@ export function DashboardSidebar() {
 						href="/dashboard"
 						onClick={() => setMobileMenuOpen(false)}
 					>
-						<div className="flex size-8 items-center justify-center rounded-lg bg-brand-600">
-							<span className="font-bold text-sm text-white">P</span>
-						</div>
+						<Image
+							alt="PingPanda"
+							className="rounded-lg"
+							height={32}
+							src="/brand-asset-profile-picture.png"
+							width={32}
+						/>
 						<span className="text-lg tracking-tight">
 							Ping<span className="font-semibold text-brand-700">Panda</span>
 						</span>
@@ -217,20 +228,22 @@ export function DashboardSidebar() {
 				{/* Bottom section */}
 				{/* User section */}
 				<div className="flex items-center gap-3 rounded-lg bg-brand-50/50 p-2">
-					<UserButton
-						appearance={{
-							elements: {
-								avatarBox: "size-9",
-							},
-						}}
-					/>
+					{mounted && (
+						<UserButton
+							appearance={{
+								elements: {
+									avatarBox: "size-9",
+								},
+							}}
+						/>
+					)}
 					<div className="min-w-0 flex-1">
-						{!isLoaded ? (
-							<div className="flex w-full items-center gap-2">
-								<div className="size-6 animate-pulse rounded-full bg-brand-200" />
+						{!showUserInfo ? (
+							<div className="flex items-center gap-2">
+								<div className="size-9 animate-pulse rounded-full bg-brand-200" />
 								<div className="flex flex-col gap-1">
-									<div className="h-5 w-24 animate-pulse rounded-lg bg-brand-200" />
-									<div className="h-3 w-32 animate-pulse rounded-lg bg-brand-200" />
+									<div className="h-4 w-24 animate-pulse rounded bg-brand-200" />
+									<div className="h-3 w-32 animate-pulse rounded bg-brand-200" />
 								</div>
 							</div>
 						) : (
@@ -244,40 +257,55 @@ export function DashboardSidebar() {
 							</>
 						)}
 					</div>
-					<SignOutButton>
-						<Button size="icon" variant="ghost">
-							<LogOut className="size-4" />
-						</Button>
-					</SignOutButton>
+					{mounted && (
+						<SignOutButton>
+							<Button size="icon" variant="ghost">
+								<LogOut className="size-4" />
+							</Button>
+						</SignOutButton>
+					)}
 				</div>
 				<div className="border-brand-100 border-t p-3">
 					{/* Plan indicator */}
 					<div className="mb-3 rounded-lg bg-linear-to-br from-brand-50 to-brand-100/50 p-3">
-						<div className="flex items-center gap-2">
-							{isPro ? (
-								<Crown className="size-4 text-amber-500" />
-							) : (
-								<div className="size-4 rounded-full bg-brand-200" />
-							)}
-							<span className="font-medium text-brand-900 text-sm">
-								{isPro ? "Pro Plan" : "Free Plan"}
-							</span>
-						</div>
-						<p className="mt-1.5 text-brand-600 text-xs">
-							{isPro
-								? "10 categories • 100 events"
-								: "3 categories • 10 events"}
-						</p>
-						{!isPro && (
-							<Link href="/dashboard/settings">
-								<Button
-									className="mt-2.5 w-full bg-brand-600 text-white hover:bg-brand-700"
-									onClick={() => setMobileMenuOpen(false)}
-									size="xs"
-								>
-									Upgrade to Pro
-								</Button>
-							</Link>
+						{!showUserInfo ? (
+							<>
+								<div className="flex items-center gap-2">
+									<div className="size-4 animate-pulse rounded-full bg-brand-200" />
+									<div className="h-4 w-24 animate-pulse rounded bg-brand-200" />
+								</div>
+								<div className="mt-1.5 h-3 w-32 animate-pulse rounded bg-brand-200" />
+								<div className="mt-2.5 h-8 w-full animate-pulse rounded bg-brand-200" />
+							</>
+						) : (
+							<>
+								<div className="flex items-center gap-2">
+									{user?.publicMetadata?.plan === "PRO" ? (
+										<Crown className="size-4 text-amber-500" />
+									) : (
+										<div className="size-4 rounded-full bg-brand-200" />
+									)}
+									<span className="font-medium text-brand-900 text-sm">
+										{user?.publicMetadata?.plan === "PRO"
+											? "Pro Plan"
+											: "Free Plan"}
+									</span>
+								</div>
+								<p className="mt-1.5 text-brand-600 text-xs">
+									{user?.publicMetadata?.plan === "PRO"
+										? "10 categories • 100 events"
+										: "3 categories • 10 events"}
+								</p>
+								<Link href="/dashboard/settings">
+									<Button
+										className="mt-2.5 w-full bg-brand-600 text-white hover:bg-brand-700"
+										onClick={() => setMobileMenuOpen(false)}
+										size="xs"
+									>
+										Upgrade to Pro
+									</Button>
+								</Link>
+							</>
 						)}
 					</div>
 				</div>

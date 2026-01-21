@@ -1,4 +1,3 @@
-import { auth } from "@clerk/nextjs/server";
 import { and, count, eq } from "drizzle-orm";
 import Elysia from "elysia";
 import { PLANS } from "@/config";
@@ -10,6 +9,7 @@ import {
 	intParamSchema,
 	updateEventSchema,
 } from "../schemas";
+import { getUserId } from "./auth";
 
 // Get event limit based on user plan
 async function getEventLimit(userId: string): Promise<number> {
@@ -31,7 +31,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 	.post(
 		"/",
 		async ({ body, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -103,7 +103,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 						categoryId: category.id,
 						name: body.name,
 						description: body.description,
-						fields: body.fields ? JSON.stringify(body.fields) : null,
+						fields: body.fields,
 					})
 					.returning();
 
@@ -114,7 +114,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 						name: inserted.name,
 						categoryId: inserted.categoryId,
 						description: inserted.description,
-						fields: inserted.fields ? JSON.parse(inserted.fields) : null,
+						fields: inserted.fields,
 						createdAt: inserted.createdAt,
 						updatedAt: inserted.updatedAt,
 					},
@@ -140,7 +140,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 	// Get all events
 
 	.get("/", async ({ status }) => {
-		const { userId } = await auth();
+		const userId = await getUserId();
 		if (!userId) {
 			console.error("No user provided.");
 			return status(401, { error: "Unauthorized" });
@@ -178,7 +178,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 	.get(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -224,7 +224,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 						color: foundEvent.categoryColor,
 						emoji: foundEvent.categoryEmoji ?? null,
 					},
-					fields: foundEvent.fields ? JSON.parse(foundEvent.fields) : null,
+					fields: foundEvent.fields,
 					createdAt: foundEvent.createdAt,
 					updatedAt: foundEvent.updatedAt,
 				};
@@ -250,7 +250,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 	.put(
 		"/:id",
 		async ({ params, body, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -315,7 +315,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 						id: updated.id,
 						name: updated.name,
 						categoryId: updated.categoryId,
-						fields: updated.fields ? JSON.parse(updated.fields) : null,
+						fields: updated.fields,
 						createdAt: updated.createdAt,
 						updatedAt: updated.updatedAt,
 					},
@@ -347,7 +347,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 	.delete(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });

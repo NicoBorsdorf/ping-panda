@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Providers from "@/providers/providers";
 
 import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -30,6 +31,7 @@ export default function RootLayout({
 				<main className="relative flex flex-1 flex-col bg-brand-25">
 					<Providers>{children}</Providers>
 				</main>
+				<Toaster position="bottom-right" />
 			</body>
 		</html>
 	);

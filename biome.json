@@ -42,6 +42,9 @@
 					"level": "warn",
 					"fix": "safe"
 				}
+			},
+			"a11y": {
+				"noLabelWithoutControl": "off"
 			}
 		}
 	},

@@ -1,4 +1,3 @@
-import { auth } from "@clerk/nextjs/server";
 import { and, count, eq } from "drizzle-orm";
 import Elysia from "elysia";
 import z from "zod";
@@ -6,6 +5,7 @@ import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
 import { apiKeyTable } from "../db/schema";
 import { createApiKeySchema, intParamSchema } from "../schemas";
+import { getUserId } from "./auth";
 
 const MAX_API_KEYS_PER_USER = 10 as const;
 
@@ -33,7 +33,7 @@ export const apiKeyRouter = new Elysia({
 	.post(
 		"/",
 		async ({ body, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -77,7 +77,6 @@ export const apiKeyRouter = new Elysia({
 						active: inserted.active,
 						lastUsedAt: inserted.lastUsedAt,
 						createdAt: inserted.createdAt,
-						updatedAt: inserted.updatedAt,
 					},
 				};
 			});
@@ -100,7 +99,7 @@ export const apiKeyRouter = new Elysia({
 
 	// List all API keys for user
 	.get("/", async ({ status }) => {
-		const { userId } = await auth();
+		const userId = await getUserId();
 		if (!userId) {
 			console.error("No user provided.");
 			return status(401, { error: "Unauthorized" });
@@ -132,7 +131,7 @@ export const apiKeyRouter = new Elysia({
 	.get(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -180,7 +179,7 @@ export const apiKeyRouter = new Elysia({
 	.put(
 		"/:id",
 		async ({ params, body, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -223,7 +222,6 @@ export const apiKeyRouter = new Elysia({
 						active: updated.active,
 						lastUsedAt: updated.lastUsedAt,
 						createdAt: updated.createdAt,
-						updatedAt: updated.updatedAt,
 					},
 				};
 			});
@@ -252,7 +250,7 @@ export const apiKeyRouter = new Elysia({
 	.delete(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });

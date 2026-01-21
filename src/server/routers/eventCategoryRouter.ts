@@ -1,4 +1,3 @@
-import { auth } from "@clerk/nextjs/server";
 import { and, count, eq } from "drizzle-orm";
 import Elysia from "elysia";
 import { PLANS } from "@/config";
@@ -10,6 +9,7 @@ import {
 	intParamSchema,
 	updateCategorySchema,
 } from "../schemas";
+import { getUserId } from "./auth";
 
 // Get category limit based on user plan
 async function getCategoryLimit(userId: string): Promise<number> {
@@ -34,7 +34,7 @@ export const eventCategoryRouter = new Elysia({
 	.post(
 		"/",
 		async ({ body, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -119,7 +119,7 @@ export const eventCategoryRouter = new Elysia({
 
 	// List all categories for user (with event counts)
 	.get("/", async ({ status }) => {
-		const { userId } = await auth();
+		const userId = await getUserId();
 		if (!userId) {
 			console.error("No user provided.");
 			return status(401, { error: "Unauthorized" });
@@ -169,7 +169,7 @@ export const eventCategoryRouter = new Elysia({
 	.get(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -238,7 +238,7 @@ export const eventCategoryRouter = new Elysia({
 	.put(
 		"/:id",
 		async ({ params, body, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -340,7 +340,7 @@ export const eventCategoryRouter = new Elysia({
 	.delete(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });

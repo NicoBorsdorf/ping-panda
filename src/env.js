@@ -26,6 +26,9 @@ export const env = createEnv({
 			.startsWith("whsec_", {
 				error: "STRIPE_WEBHOOK_SECRET must start with 'whsec_'",
 			}),
+		DISCORD_API_TOKEN: z
+			.string()
+			.min(1, { error: "DISCORD_API_TOKEN is required" }),
 	},
 
 	/**
@@ -58,6 +61,7 @@ export const env = createEnv({
 		DATABASE_URL: process.env.DATABASE_URL,
 		NODE_ENV: process.env.NODE_ENV,
 		NEXT_PUBLIC_VERCEL_URL: process.env.NEXT_PUBLIC_VERCEL_URL,
+		DISCORD_API_TOKEN: process.env.DISCORD_API_TOKEN,
 
 		// Clerk
 		CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,

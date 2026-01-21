@@ -30,18 +30,27 @@ export const updateCategorySchema = z.object({
 	emoji: z.string().optional(),
 });
 
-export const createMonitoringEntrySchema = z.object({
-	eventId: z.number().int().positive(),
-	payload: z.record(z.string(), z.string()).optional(),
-	status: z.enum(["sent", "failed"]),
-});
-
 export const updateUserSettingsSchema = z.object({
-	discordWebhookUrl: z.string().optional(),
-	disableAllEvents: z.boolean().optional(),
-	timezone: z.string().optional(),
+	timezone: z.string(),
+	discordUserId: z.string(),
 });
 
 export const intParamSchema = z.object({
 	id: z.number().int().positive(),
+});
+
+export const eventV1Schema = z.object({
+	event: z
+		.string({ error: "Event name must be of type string." })
+		.min(1, { error: "Event name is required." })
+		.max(255, { error: "Event name is too long." }),
+	category: z
+		.string({ error: "Category must be of type string." })
+		.min(1, { error: "Category is required." })
+		.max(255, { error: "Category is too long." }),
+	payload: z
+		.record(z.string(), z.string(), {
+			error: "Payload must be of type record / object.",
+		})
+		.optional(),
 });

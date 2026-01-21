@@ -3,22 +3,14 @@ import type z from "zod";
 import { api } from "@/lib/eden";
 import type { updateUserSettingsSchema } from "@/server/schemas";
 
-// Query keys
-export const settingsKeys = {
-	all: ["settings"] as const,
-	user: () => [...settingsKeys.all, "user"] as const,
-};
-
-// Fetch user settings
 export function useSettings() {
 	return useQuery({
-		queryKey: settingsKeys.user(),
+		queryKey: ["settings"],
 		queryFn: async () => {
 			return await api.user.settings.get().then(({ status, data }) => {
 				if (status !== 200 || !data) {
 					throw new Error("Failed to get user settings");
 				}
-
 				return data;
 			});
 		},
@@ -26,25 +18,52 @@ export function useSettings() {
 }
 
 // Update settings
-export function useUpdateSettings() {
-	const queryClient = useQueryClient();
-
+export function useUpdateSettings({
+	onSuccess,
+	onError,
+}: {
+	onSuccess?: () => void;
+	onError?: () => void;
+} = {}) {
 	return useMutation({
 		mutationFn: async (input: z.infer<typeof updateUserSettingsSchema>) => {
-			return api.user.settings.put(input);
+			return await api.user.settings.put(input).then(({ status, data }) => {
+				if (status !== 200 || !data) {
+					throw new Error("Failed to update user settings");
+				}
+				return data;
+			});
 		},
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: settingsKeys.user() });
-		},
+		onSuccess,
+		onError,
 	});
 }
 
-// Test Discord webhook
-export function useTestWebhook() {
+// Test Discord connection
+export function useTestDiscord({
+	onSuccess,
+	onError,
+}: {
+	onSuccess?: () => void;
+	onError?: () => void;
+} = {}) {
+	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: async (): Promise<boolean> => {
-			await new Promise((resolve) => setTimeout(resolve, 1000));
-			return true;
+		mutationFn: async () => {
+			return await api.user.settings["test-discord"]
+				.post()
+				.then(({ status, data }) => {
+					if (status !== 200 || !data) {
+						throw new Error("Failed to test Discord connection");
+					}
+					return data;
+				});
 		},
+		onSuccess: () => {
+			onSuccess?.();
+
+			queryClient.invalidateQueries({ queryKey: ["settings"] });
+		},
+		onError,
 	});
 }

@@ -2,6 +2,7 @@ import {
 	boolean,
 	index,
 	integer,
+	jsonb,
 	pgTable,
 	timestamp,
 	uniqueIndex,
@@ -27,8 +28,7 @@ export const userSettingsTable = pgTable(
 		userId: varchar()
 			.notNull()
 			.references(() => userTable.id),
-		discordWebhookUrl: varchar({ length: 255 }),
-		disableAllEvents: boolean().default(false),
+		discordUserId: varchar({ length: 255 }),
 		timezone: varchar({ length: 255 }),
 
 		createdAt: timestamp().notNull().defaultNow(),
@@ -68,7 +68,7 @@ export const eventTable = pgTable(
 		id: integer().primaryKey().generatedAlwaysAsIdentity(),
 		name: varchar({ length: 255 }).notNull(),
 		description: varchar({ length: 500 }),
-		fields: varchar({ length: 1000 }), // JSON string of custom fields
+		fields: jsonb().notNull().default({}), // JSON object of custom fields
 
 		categoryId: integer()
 			.notNull()
@@ -101,25 +101,29 @@ export const apiKeyTable = pgTable("api_key", {
 	key: varchar({ length: 255 }).notNull().unique(),
 	description: varchar({ length: 500 }).notNull(),
 	active: boolean().notNull().default(true),
-	lastUsedAt: timestamp(),
 
 	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.$onUpdate(() => new Date()),
+	lastUsedAt: timestamp(),
 });
 
 export const monitoringEntryTable = pgTable("monitoring_entry", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),
 	eventId: integer()
 		.notNull()
-		.references(() => eventTable.id, { onDelete: "cascade" }),
+		.references(() => eventTable.id, { onDelete: "set null" }),
+	categoryId: integer()
+		.notNull()
+		.references(() => categoryTable.id, { onDelete: "set null" }),
 	userId: varchar()
 		.notNull()
 		.references(() => userTable.id),
+	apiKeyId: integer()
+		.notNull()
+		.references(() => apiKeyTable.id, { onDelete: "set null" }),
 
-	payload: varchar({ length: 2000 }), // JSON string of event data
-	status: varchar({ length: 255, enum: ["sent", "failed"] }).notNull(),
+	error: varchar({ length: 5000 }), // error message
+	payload: jsonb(), // JSON object of event data
+	status: varchar({ length: 6, enum: ["sent", "failed"] }).notNull(),
 
 	createdAt: timestamp().notNull().defaultNow(),
 	updatedAt: timestamp()

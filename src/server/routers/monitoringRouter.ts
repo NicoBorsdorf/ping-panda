@@ -1,50 +1,17 @@
-import { auth } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import Elysia from "elysia";
 import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
 import { categoryTable, eventTable, monitoringEntryTable } from "../db/schema";
-import { createMonitoringEntrySchema, intParamSchema } from "../schemas";
+import { intParamSchema } from "../schemas";
+import { getUserId } from "./auth";
 
 export const monitoringRouter = new Elysia({
 	prefix: "/monitoring",
 	tags: ["monitoring"],
 })
-	.post(
-		"/",
-		async ({ body, status }) => {
-			const { userId } = await auth();
-			if (!userId) {
-				console.error("No user provided.");
-				return status(401, { error: "Unauthorized" });
-			}
-
-			const [result, error] = await tryCatchAsync(async () => {
-				const [entry] = await db
-					.insert(monitoringEntryTable)
-					.values({
-						userId,
-						eventId: body.eventId,
-						payload: body.payload ? JSON.stringify(body.payload) : null,
-						status: body.status,
-					})
-					.returning();
-				return entry;
-			});
-
-			if (error) {
-				console.error("Error creating monitoring entry:", { error, userId });
-				return status(500, { error: "Failed to create monitoring entry" });
-			}
-
-			return status(201, result);
-		},
-		{
-			body: createMonitoringEntrySchema,
-		},
-	)
 	.get("/", async ({ status }) => {
-		const { userId } = await auth();
+		const userId = await getUserId();
 		if (!userId) {
 			console.error("No user provided.");
 			return status(401, { error: "Unauthorized" });
@@ -79,7 +46,7 @@ export const monitoringRouter = new Elysia({
 	.get(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -119,7 +86,7 @@ export const monitoringRouter = new Elysia({
 					found: true as const,
 					entry: {
 						...entry,
-						payload: entry.payload ? JSON.parse(entry.payload) : null,
+						payload: entry.payload,
 						category: {
 							name: entry.categoryName,
 							color: entry.categoryColor,
@@ -147,7 +114,7 @@ export const monitoringRouter = new Elysia({
 	.delete(
 		"/:id",
 		async ({ params, status }) => {
-			const { userId } = await auth();
+			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
@@ -178,7 +145,7 @@ export const monitoringRouter = new Elysia({
 		},
 	)
 	.get("/stats", async ({ status }) => {
-		const { userId } = await auth();
+		const userId = await getUserId();
 		if (!userId) {
 			console.error("No user provided.");
 			return status(401, { error: "Unauthorized" });
