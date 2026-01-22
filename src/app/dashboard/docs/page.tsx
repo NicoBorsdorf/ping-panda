@@ -67,66 +67,69 @@ function CodeBlock({
 }
 
 const triggerExample = `// Trigger an event using fetch
-const response = await fetch("https://pingpanda.app/api/event/trigger", {
+const response = await fetch("https://pingpanda.app/api/v1/events", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "Authorization": "Bearer YOUR_API_KEY"
+    "Authorization": "YOUR_API_KEY"
   },
   body: JSON.stringify({
     category: "sales",
     event: "new-purchase",
-    data: {
-      amount: 99.99,
+    payload: {
+      amount: "99.99",
       currency: "EUR",
-      customer: "john@example.com",
-      product: "Pro Plan"
+      customer: "john@example.com"
     }
   })
 });`;
 
-const curlExample = `curl -X POST https://pingpanda.app/api/event/trigger \\
+const curlExample = `curl -X POST https://pingpanda.app/api/v1/events \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Authorization: YOUR_API_KEY" \\
   -d '{
     "category": "sales",
     "event": "new-purchase",
-    "data": {
-      "amount": 99.99,
+    "payload": {
+      "amount": "99.99",
       "currency": "EUR",
-      "customer": "john@example.com",
-      "product": "Pro Plan"
+      "customer": "john@example.com"
     }
   }'`;
 
 const nodeExample = `import axios from "axios";
 
 const pingPanda = axios.create({
-  baseURL: "https://pingpanda.app/api",
+  baseURL: "https://pingpanda.app/api/v1",
   headers: {
-    "Authorization": "Bearer YOUR_API_KEY"
+    "Authorization": "YOUR_API_KEY"
   }
 });
 
 // Trigger an event
-await pingPanda.post("/event/trigger", {
+await pingPanda.post("/events", {
   category: "user-activity",
   event: "signup",
-  data: {
+  payload: {
     email: "newuser@example.com",
     plan: "free",
     referrer: "google"
   }
 });`;
 
-const responseExample = `{
+const responseExample = `// Success (200)
+{
   "success": true,
-  "id": "evt_1234567890",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "notification": {
-    "status": "sent",
-    "channel": "discord"
-  }
+  "message": "Event sent to channel.",
+  "event": "new-purchase",
+  "category": "sales",
+  "sentDate": "2024-01-15T10:30:00.000Z"
+}
+
+// Error (400/401/403/404)
+{
+  "error": "Event not found.",
+  "message": "Event \\"new-purchase\\" not found in category \\"sales\\"."
 }`;
 
 export default function DocsPage() {
@@ -215,7 +218,7 @@ export default function DocsPage() {
 							</div>
 							<div>
 								<h3 className="font-semibold text-brand-900">
-									Configure Discord Webhook
+									Configure Discord User ID
 								</h3>
 								<p className="mt-1 text-muted-foreground text-sm">
 									In{" "}
@@ -225,8 +228,9 @@ export default function DocsPage() {
 									>
 										Settings
 									</a>
-									, add your Discord webhook URL where you want to receive
-									notifications.
+									, add your Discord User ID to receive notifications via DM.
+									Enable Developer Mode in Discord, then right-click your
+									username and select "Copy User ID".
 								</p>
 							</div>
 						</div>
@@ -269,7 +273,7 @@ export default function DocsPage() {
 						<div className="flex items-center gap-2 rounded-lg bg-brand-950 p-3">
 							<Badge className="bg-green-500/20 text-green-400">POST</Badge>
 							<code className="font-mono text-brand-100 text-sm">
-								/api/event/trigger
+								/api/v1/events
 							</code>
 						</div>
 					</div>
@@ -316,7 +320,7 @@ export default function DocsPage() {
 											Authorization
 										</td>
 										<td className="px-4 py-2 text-muted-foreground">
-											Bearer YOUR_API_KEY
+											YOUR_API_KEY
 										</td>
 										<td className="px-4 py-2">
 											<Badge
@@ -359,7 +363,7 @@ export default function DocsPage() {
 										</td>
 										<td className="px-4 py-2 text-muted-foreground">string</td>
 										<td className="px-4 py-2 text-muted-foreground">
-											The category name you created in the dashboard
+											The category name you created in the dashboard (required)
 										</td>
 									</tr>
 									<tr>
@@ -368,14 +372,19 @@ export default function DocsPage() {
 										</td>
 										<td className="px-4 py-2 text-muted-foreground">string</td>
 										<td className="px-4 py-2 text-muted-foreground">
-											The event name within the category
+											The event name within the category (required)
 										</td>
 									</tr>
 									<tr>
-										<td className="px-4 py-2 font-mono text-brand-900">data</td>
-										<td className="px-4 py-2 text-muted-foreground">object</td>
+										<td className="px-4 py-2 font-mono text-brand-900">
+											payload
+										</td>
 										<td className="px-4 py-2 text-muted-foreground">
-											Custom data to include in the notification (optional)
+											{"Record<string, string>"}
+										</td>
+										<td className="px-4 py-2 text-muted-foreground">
+											Key-value pairs to include in the Discord notification
+											(optional)
 										</td>
 									</tr>
 								</tbody>
@@ -511,10 +520,10 @@ export default function DocsPage() {
 										Categories
 									</th>
 									<th className="px-4 py-3 text-left font-medium text-brand-700">
-										Events/Category
+										Events
 									</th>
 									<th className="px-4 py-3 text-left font-medium text-brand-700">
-										Triggers/Day
+										Triggers/Month
 									</th>
 								</tr>
 							</thead>
@@ -541,6 +550,10 @@ export default function DocsPage() {
 							</tbody>
 						</table>
 					</div>
+					<p className="mt-3 text-muted-foreground text-sm">
+						Triggers are counted per event. When you exceed your monthly limit
+						for an event, you'll receive a 403 error until the next month.
+					</p>
 				</CardContent>
 			</Card>
 		</div>

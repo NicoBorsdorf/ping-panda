@@ -1,12 +1,12 @@
 import z from "zod";
 
-export const createApiKeySchema = z.object({
+export const apiKeySchema = z.object({
 	name: z.string().min(1).max(255),
-	description: z.string().max(500).optional(),
+	description: z.string().max(5000).optional(),
 });
 
 export const eventSchema = z.object({
-	category: z.string().min(1).max(255),
+	categoryId: z.number().int().positive(), // category id
 	name: z
 		.string({ error: "Event name must be of type string." })
 		.min(1, { error: "Event name is required." })
@@ -14,36 +14,30 @@ export const eventSchema = z.object({
 	description: z
 		.string({ error: "Event description must be of type string." })
 		.max(5000, { error: "Event description is too long." })
-		.optional(),
-	payload: z.array(
-		z.object({
-			key: z.string().min(1).max(255),
-			type: z.enum(["string", "number", "boolean"]),
+		.nullable(),
+	payload: z
+		.array(z.string().min(1).max(255))
+		.max(10, { error: "Maximum 10 payload fields are allowed." }),
+});
+
+export const categorySchema = z.object({
+	name: z.string().min(1).max(255),
+	description: z.string().max(5000).optional(),
+	color: z
+		.string()
+		.min(1)
+		.max(7)
+		.regex(/^#([0-9a-fA-F]{6})$/, {
+			error: "Color must be a valid hex color.",
 		}),
-	),
-});
-
-export const createCategorySchema = z.object({
-	name: z.string().min(1).max(255),
-	description: z.string().max(5000).optional(),
-	color: z.string().optional(),
-	emoji: z.string().optional(),
-});
-
-export const updateCategorySchema = z.object({
-	name: z.string().min(1).max(255),
-	description: z.string().max(5000).optional(),
-	color: z.string().optional(),
-	emoji: z.string().optional(),
 });
 
 export const updateUserSettingsSchema = z.object({
-	timezone: z.string(),
 	discordUserId: z.string(),
 });
 
-export const intParamSchema = z.object({
-	id: z.number().int().positive(),
+export const paramIdSchema = z.object({
+	id: z.string().min(1, { error: "ID is required." }).transform(Number),
 });
 
 export const eventV1Schema = z.object({
@@ -56,7 +50,7 @@ export const eventV1Schema = z.object({
 		.min(1, { error: "Category is required." })
 		.max(255, { error: "Category is too long." }),
 	payload: z
-		.record(z.string(), z.string(), {
+		.record(z.string().min(1).max(255), z.string().min(1).max(255), {
 			error: "Payload must be of type record / object.",
 		})
 		.optional(),

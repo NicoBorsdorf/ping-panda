@@ -9,11 +9,7 @@ import {
 	userSettingsTable,
 	userTable,
 } from "../db/schema";
-import {
-	createCategorySchema,
-	intParamSchema,
-	updateCategorySchema,
-} from "../schemas";
+import { categorySchema, paramIdSchema } from "../schemas";
 import { getUserId } from "./auth";
 
 // Get category limit based on user plan
@@ -86,7 +82,7 @@ export const eventCategoryRouter = new Elysia({
 					userId,
 					name: body.name,
 					color: body.color ?? "#6991D2",
-					emoji: body.emoji,
+					description: body.description,
 				});
 
 				return {
@@ -110,7 +106,7 @@ export const eventCategoryRouter = new Elysia({
 			return status(201, { success: true });
 		},
 		{
-			body: createCategorySchema,
+			body: categorySchema,
 		},
 	)
 
@@ -129,50 +125,22 @@ export const eventCategoryRouter = new Elysia({
 					name: categoryTable.name,
 					description: categoryTable.description,
 					color: categoryTable.color,
-					emoji: categoryTable.emoji,
 					createdAt: categoryTable.createdAt,
 					updatedAt: categoryTable.updatedAt,
-					timezone: userSettingsTable.timezone,
+
 					eventCount: countDistinct(eventTable.id),
 				})
 				.from(categoryTable)
-				.innerJoin(eventTable, eq(categoryTable.id, eventTable.categoryId))
+				.leftJoin(eventTable, eq(categoryTable.id, eventTable.categoryId))
 				.innerJoin(
 					userSettingsTable,
 					eq(categoryTable.userId, userSettingsTable.userId),
 				)
-				.where(
-					and(eq(eventTable.userId, userId), eq(categoryTable.userId, userId)),
-				)
+				.where(eq(categoryTable.userId, userId))
 				.groupBy(categoryTable.id)
 				.orderBy(categoryTable.createdAt);
 
-			return categoryList.map(
-				({
-					id,
-					name,
-					description,
-					color,
-					createdAt,
-					emoji,
-					eventCount,
-					updatedAt,
-					timezone,
-				}) => ({
-					id,
-					name,
-					description,
-					eventCount,
-					color,
-					emoji,
-					createdAt: new Date(
-						createdAt.toLocaleString("de-DE", { timeZone: timezone }),
-					),
-					updatedAt: new Date(
-						updatedAt.toLocaleString("de-DE", { timeZone: timezone }),
-					),
-				}),
-			);
+			return categoryList;
 		});
 
 		if (error) {
@@ -200,10 +168,8 @@ export const eventCategoryRouter = new Elysia({
 						name: categoryTable.name,
 						description: categoryTable.description,
 						color: categoryTable.color,
-						emoji: categoryTable.emoji,
 						createdAt: categoryTable.createdAt,
 						updatedAt: categoryTable.updatedAt,
-						timezone: userSettingsTable.timezone,
 					})
 					.from(categoryTable)
 					.innerJoin(
@@ -222,23 +188,7 @@ export const eventCategoryRouter = new Elysia({
 					return null;
 				}
 
-				return {
-					id: category.id,
-					name: category.name,
-					description: category.description,
-					color: category.color,
-					emoji: category.emoji,
-					createdAt: new Date(
-						category.createdAt.toLocaleString("de-DE", {
-							timeZone: category.timezone,
-						}),
-					),
-					updatedAt: new Date(
-						category.updatedAt.toLocaleString("de-DE", {
-							timeZone: category.timezone,
-						}),
-					),
-				};
+				return category;
 			});
 
 			if (error) {
@@ -254,7 +204,7 @@ export const eventCategoryRouter = new Elysia({
 			return status(200, result);
 		},
 		{
-			params: intParamSchema,
+			params: paramIdSchema,
 		},
 	)
 
@@ -314,7 +264,6 @@ export const eventCategoryRouter = new Elysia({
 						name: body.name,
 						description: body.description,
 						color: body.color,
-						emoji: body.emoji,
 					})
 					.where(
 						and(
@@ -348,8 +297,8 @@ export const eventCategoryRouter = new Elysia({
 			return status(200, { success: true });
 		},
 		{
-			params: intParamSchema,
-			body: updateCategorySchema,
+			params: paramIdSchema,
+			body: categorySchema,
 		},
 	)
 
@@ -406,6 +355,6 @@ export const eventCategoryRouter = new Elysia({
 			return status(200, { success: true });
 		},
 		{
-			params: intParamSchema,
+			params: paramIdSchema,
 		},
 	);

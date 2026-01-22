@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type z from "zod";
 import { api } from "@/lib/eden";
-import type { createApiKeySchema } from "@/server/schemas";
+import type { apiKeySchema } from "@/server/schemas";
 
 // Query keys
 export const apiKeyKeys = {
@@ -31,7 +31,7 @@ export function useCreateApiKey() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async (input: z.infer<typeof createApiKeySchema>) => {
+		mutationFn: async (input: z.infer<typeof apiKeySchema>) => {
 			const response = await api.apikeys
 				.post(input)
 				.then(({ status, data }) => {

@@ -1,4 +1,4 @@
-import { and, countDistinct, eq } from "drizzle-orm";
+import { and, countDistinct, eq, not } from "drizzle-orm";
 import Elysia from "elysia";
 import { PLANS } from "@/config";
 import { tryCatchAsync } from "@/lib/utils";
@@ -6,10 +6,10 @@ import { db } from "../db";
 import {
 	categoryTable,
 	eventTable,
-	userSettingsTable,
+	payloadTable,
 	userTable,
 } from "../db/schema";
-import { eventSchema, intParamSchema, eventSchema } from "../schemas";
+import { eventSchema, paramIdSchema } from "../schemas";
 import { getUserId } from "./auth";
 
 // Get event limit based on user plan
@@ -57,15 +57,16 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 					)
 					.where(
 						and(
-							eq(categoryTable.name, body.category),
+							eq(categoryTable.id, body.categoryId),
 							eq(categoryTable.userId, userId),
 						),
-					);
+					)
+					.groupBy(categoryTable.id);
 
 				if (!category) {
 					return {
 						success: false as const,
-						error: `Category "${body.category}" not found`,
+						error: `Category "${body.categoryId}" not found`,
 					};
 				}
 
@@ -83,29 +84,38 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 					.select({ id: eventTable.id })
 					.from(eventTable)
 					.where(
-						and(
-							eq(eventTable.name, body.name),
-							eq(eventTable.categoryId, category.id),
-							eq(eventTable.userId, userId),
-						),
+						and(eq(eventTable.name, body.name), eq(eventTable.userId, userId)),
 					)
 					.limit(1);
 
 				if (existingEvent) {
 					return {
 						success: false as const,
-						error: `An event with the name "${body.name}" already exists in this category`,
+						error: `An event with the name "${body.name}" already exists`,
 					};
 				}
 
 				// Insert into database
-				await db.insert(eventTable).values({
-					userId,
-					categoryId: category.id,
-					name: body.name,
-					description: body.description,
-					fields: body.fields,
-				});
+				const [dbEvent] = await db
+					.insert(eventTable)
+					.values({
+						userId,
+						categoryId: category.id,
+						name: body.name,
+						description: body.description,
+					})
+					.returning();
+
+				// Insert payload fields (if any)
+				if (body.payload.length > 0) {
+					await db.insert(payloadTable).values(
+						body.payload.map((name) => ({
+							eventId: dbEvent.id,
+							userId,
+							name,
+						})),
+					);
+				}
 
 				return {
 					success: true as const,
@@ -138,62 +148,63 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 		}
 
 		const [events, error] = await tryCatchAsync(async () => {
-			const events = await db
+			// Get events with their categories and all payload field names
+			const rawRows = await db
 				.select({
 					id: eventTable.id,
 					name: eventTable.name,
 					description: eventTable.description,
-					fields: eventTable.fields,
 					createdAt: eventTable.createdAt,
 					updatedAt: eventTable.updatedAt,
-					categoryId: eventTable.categoryId,
+					categoryId: categoryTable.id,
 					categoryName: categoryTable.name,
 					categoryColor: categoryTable.color,
-					categoryEmoji: categoryTable.emoji,
-					timezone: userSettingsTable.timezone,
+					payloadName: payloadTable.name,
 				})
 				.from(eventTable)
 				.innerJoin(categoryTable, eq(eventTable.categoryId, categoryTable.id))
-				.innerJoin(
-					userSettingsTable,
-					eq(eventTable.userId, userSettingsTable.userId),
-				)
+				.leftJoin(payloadTable, eq(payloadTable.eventId, eventTable.id))
 				.where(
 					and(eq(eventTable.userId, userId), eq(categoryTable.userId, userId)),
 				);
 
-			return events.map(
-				({
-					timezone,
-					createdAt,
-					updatedAt,
-					categoryColor,
-					categoryEmoji,
-					categoryId,
-					categoryName,
-					description,
-					fields,
-					id,
-					name,
-				}) => ({
-					id,
-					name,
-					description,
-					fields,
-					category: {
-						id: categoryId,
-						name: categoryName,
-						color: categoryColor,
-						emoji: categoryEmoji,
-					},
-					createdAt: new Date(
-						createdAt.toLocaleString("de-DE", { timeZone: timezone }),
-					),
-					updatedAt: new Date(
-						updatedAt.toLocaleString("de-DE", { timeZone: timezone }),
-					),
-				}),
-			);
+			// Group rows by event, collecting payload names per event
+			const eventMap = new Map<
+				number,
+				{
+					id: number;
+					name: string;
+					description: string | null;
+					createdAt: Date;
+					updatedAt: Date;
+					category: { id: number; name: string; color: string };
+					payloadFieldNames: string[];
+				}
+			>();
+
+			for (const row of rawRows) {
+				if (!eventMap.has(row.id)) {
+					eventMap.set(row.id, {
+						id: row.id,
+						name: row.name,
+						description: row.description,
+						createdAt: row.createdAt,
+						updatedAt: row.updatedAt,
+						category: {
+							id: row.categoryId,
+							name: row.categoryName,
+							color: row.categoryColor,
+						},
+						payloadFieldNames: [],
+					});
+				}
+				if (row.payloadName) {
+					// biome-ignore lint/style/noNonNullAssertion: Event is set in the map
+					eventMap.get(row.id)!.payloadFieldNames.push(row.payloadName);
+				}
+			}
+
+			return Array.from(eventMap.values());
 		});
 
 		if (error) {
@@ -203,93 +214,6 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 
 		return status(200, events);
 	})
-	// Get single event
-	.get(
-		"/:id",
-		async ({ params, status }) => {
-			const userId = await getUserId();
-			if (!userId) {
-				console.error("No user provided.");
-				return status(401, { error: "Unauthorized" });
-			}
-
-			const [event, error] = await tryCatchAsync(async () => {
-				// Join with category to verify ownership
-				const [foundEvent] = await db
-					.select({
-						id: eventTable.id,
-						name: eventTable.name,
-						description: eventTable.description,
-						categoryId: eventTable.categoryId,
-						categoryName: categoryTable.name,
-						categoryColor: categoryTable.color,
-						categoryEmoji: categoryTable.emoji,
-						fields: eventTable.fields,
-						createdAt: eventTable.createdAt,
-						updatedAt: eventTable.updatedAt,
-						categoryUserId: categoryTable.userId,
-						timezone: userSettingsTable.timezone,
-					})
-					.from(eventTable)
-					.innerJoin(categoryTable, eq(eventTable.categoryId, categoryTable.id))
-					.where(
-						and(
-							eq(eventTable.id, Number(params.id)),
-							eq(eventTable.userId, userId),
-						),
-					)
-					.limit(1);
-
-				if (!foundEvent || foundEvent.categoryUserId !== userId) {
-					return {
-						success: false as const,
-						error: "Event not found or not authorized",
-					};
-				}
-
-				return {
-					success: true as const,
-					data: {
-						id: foundEvent.id,
-						name: foundEvent.name,
-						description: foundEvent.description,
-						category: {
-							id: foundEvent.categoryId,
-							name: foundEvent.categoryName,
-							color: foundEvent.categoryColor,
-							emoji: foundEvent.categoryEmoji ?? null,
-						},
-						fields: foundEvent.fields,
-						createdAt: new Date(
-							foundEvent.createdAt.toLocaleString("de-DE", {
-								timeZone: foundEvent.timezone,
-							}),
-						),
-						updatedAt: new Date(
-							foundEvent.updatedAt.toLocaleString("de-DE", {
-								timeZone: foundEvent.timezone,
-							}),
-						),
-					},
-				};
-			});
-
-			if (error) {
-				console.error("Error getting event:", error);
-				return status(500, { error: "Failed to get event" });
-			}
-
-			if (!event.success) {
-				console.error("Event not found:", { params, userId });
-				return status(404, { error: event.error });
-			}
-
-			return status(200, event.data);
-		},
-		{
-			params: intParamSchema,
-		},
-	)
 
 	// Update event
 	.put(
@@ -321,38 +245,55 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 					return { found: false as const };
 				}
 
-				// If name is being changed, check for duplicates within the category
-				if (body.name && body.name !== existing.name) {
-					const [duplicate] = await db
-						.select({ id: eventTable.id })
-						.from(eventTable)
-						.where(
-							and(
-								eq(eventTable.name, body.name),
-								eq(eventTable.categoryId, existing.categoryId),
-							),
-						)
-						.limit(1);
+				// check for duplicate event name
+				const [duplicate] = await db
+					.select({ id: eventTable.id })
+					.from(eventTable)
+					.where(
+						and(
+							eq(eventTable.name, body.name),
+							eq(eventTable.userId, userId),
+							not(eq(eventTable.id, params.id)),
+						),
+					)
+					.limit(1);
 
-					if (duplicate) {
-						return {
-							found: true as const,
-							duplicate: true as const,
-							error: `An event with the name "${body.name}" already exists in this category`,
-						};
-					}
+				if (duplicate) {
+					return {
+						found: true as const,
+						duplicate: true as const,
+						error: `An event with the name "${body.name}" already exists`,
+					};
 				}
 
 				// Update the event
-				await db
-					.update(eventTable)
-					.set({
-						name: body.name,
-						fields: body.fields ? JSON.stringify(body.fields) : undefined,
-					})
-					.where(
-						and(eq(eventTable.id, params.id), eq(eventTable.userId, userId)),
+				await Promise.all([
+					db
+						.update(eventTable)
+						.set({
+							name: body.name,
+							description: body.description,
+							categoryId: body.categoryId,
+						})
+						.where(
+							and(eq(eventTable.id, params.id), eq(eventTable.userId, userId)),
+						),
+					// Delete existing payload fields
+					db
+						.delete(payloadTable)
+						.where(eq(payloadTable.eventId, params.id)),
+				]);
+
+				// Insert new payload fields (if any) - easier than updating specific payload fields
+				if (body.payload.length > 0) {
+					await db.insert(payloadTable).values(
+						body.payload.map((name) => ({
+							eventId: params.id,
+							userId,
+							name,
+						})),
 					);
+				}
 
 				return {
 					found: true as const,
@@ -378,7 +319,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 			return status(200, { success: true });
 		},
 		{
-			params: intParamSchema,
+			params: paramIdSchema,
 			body: eventSchema,
 		},
 	)
@@ -434,6 +375,6 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 			return status(200, { success: true });
 		},
 		{
-			params: intParamSchema,
+			params: paramIdSchema,
 		},
 	);

@@ -5,7 +5,7 @@ import { MAX_API_KEYS_PER_USER } from "@/config";
 import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
 import { apiKeyTable, userSettingsTable } from "../db/schema";
-import { createApiKeySchema, intParamSchema } from "../schemas";
+import { apiKeySchema, paramIdSchema } from "../schemas";
 import { getUserId } from "./auth";
 
 // Generate a secure API key
@@ -85,7 +85,7 @@ export const apiKeyRouter = new Elysia({
 			return status(201, { success: true, key: result.key });
 		},
 		{
-			body: createApiKeySchema,
+			body: apiKeySchema,
 		},
 	)
 
@@ -107,7 +107,6 @@ export const apiKeyRouter = new Elysia({
 					active: apiKeyTable.active,
 					lastUsedAt: apiKeyTable.lastUsedAt,
 					createdAt: apiKeyTable.createdAt,
-					timezone: userSettingsTable.timezone,
 				})
 				.from(apiKeyTable)
 				.innerJoin(
@@ -118,22 +117,10 @@ export const apiKeyRouter = new Elysia({
 				.orderBy(apiKeyTable.createdAt);
 
 			// Mask API keys for security
-			return apiKeys.map(
-				({ key, lastUsedAt, createdAt, timezone, ...rest }) => ({
-					...rest,
-					key: maskApiKey(key),
-					lastUsedAt: lastUsedAt
-						? new Date(
-								lastUsedAt.toLocaleString("de-DE", { timeZone: timezone }),
-							)
-						: null,
-					createdAt: new Date(
-						createdAt.toLocaleString("de-DE", {
-							timeZone: timezone,
-						}),
-					),
-				}),
-			);
+			return apiKeys.map(({ key, ...rest }) => ({
+				...rest,
+				key: maskApiKey(key),
+			}));
 		});
 
 		if (error) {
@@ -164,7 +151,6 @@ export const apiKeyRouter = new Elysia({
 						active: apiKeyTable.active,
 						lastUsedAt: apiKeyTable.lastUsedAt,
 						createdAt: apiKeyTable.createdAt,
-						timezone: userSettingsTable.timezone,
 					})
 					.from(apiKeyTable)
 					.innerJoin(
@@ -186,18 +172,6 @@ export const apiKeyRouter = new Elysia({
 				return {
 					...apiKey,
 					key: maskApiKey(apiKey.key),
-					createdAt: new Date(
-						apiKey.createdAt.toLocaleString("de-DE", {
-							timeZone: apiKey.timezone,
-						}),
-					),
-					lastUsedAt: apiKey.lastUsedAt
-						? new Date(
-								apiKey.lastUsedAt.toLocaleString("de-DE", {
-									timeZone: apiKey.timezone,
-								}),
-							)
-						: null,
 				};
 			});
 
@@ -214,7 +188,7 @@ export const apiKeyRouter = new Elysia({
 			return status(200, key);
 		},
 		{
-			params: intParamSchema,
+			params: paramIdSchema,
 		},
 	)
 
@@ -271,7 +245,7 @@ export const apiKeyRouter = new Elysia({
 			return status(200, { success: true });
 		},
 		{
-			params: intParamSchema,
+			params: paramIdSchema,
 			body: z.object({
 				name: z.string().min(1).max(255),
 				description: z.string().max(500).optional(),
@@ -326,6 +300,6 @@ export const apiKeyRouter = new Elysia({
 			return status(200, { success: true });
 		},
 		{
-			params: intParamSchema,
+			params: paramIdSchema,
 		},
 	);

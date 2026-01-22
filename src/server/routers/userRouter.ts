@@ -1,7 +1,9 @@
+import { currentUser } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { env } from "@/env";
 import { DiscordClient } from "@/lib/discord";
+import { createCheckoutSession } from "@/lib/stripe";
 import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
 import { userSettingsTable, userTable } from "../db/schema";
@@ -41,7 +43,6 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 
 				await tx.insert(userSettingsTable).values({
 					userId: user.id,
-					timezone: "Europe/Berlin",
 				});
 
 				console.info("User created and settings initialized:", { userId });
@@ -56,6 +57,28 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 
 		return status(200, { isSynced: true });
 	})
+	.post("/upgrade", async ({ status }) => {
+		const user = await currentUser();
+
+		if (!user) {
+			console.error("No user found");
+			return status(401, { error: "Unauthorized" });
+		}
+
+		if (!user.primaryEmailAddress) {
+			console.error("No primary email address found for user:", {
+				userId: user.id,
+			});
+			return status(400, { error: "No primary email address found" });
+		}
+
+		const session = await createCheckoutSession({
+			userEmail: user.primaryEmailAddress.emailAddress,
+			userId: user.id,
+		});
+
+		return status(200, { sessionUrl: session.url });
+	})
 	.get("/settings", async ({ status }) => {
 		const userId = await getUserId();
 
@@ -69,7 +92,6 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 					userId: userSettingsTable.userId,
 					createdAt: userSettingsTable.createdAt,
 					updatedAt: userSettingsTable.updatedAt,
-					timezone: userSettingsTable.timezone,
 					discordUserId: userSettingsTable.discordUserId,
 				})
 				.from(userSettingsTable)
@@ -85,22 +107,7 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 
 			return {
 				found: true as const,
-				settings: {
-					id: settings.id,
-					userId: settings.userId,
-					createdAt: new Date(
-						settings.createdAt.toLocaleString("de-DE", {
-							timeZone: settings.timezone,
-						}),
-					),
-					updatedAt: new Date(
-						settings.updatedAt.toLocaleString("de-DE", {
-							timeZone: settings.timezone,
-						}),
-					),
-					timezone: settings.timezone,
-					discordUserId: settings.discordUserId,
-				},
+				settings,
 			};
 		});
 
@@ -127,7 +134,6 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 				const [settings] = await db
 					.update(userSettingsTable)
 					.set({
-						timezone: body.timezone,
 						discordUserId: body.discordUserId,
 					})
 					.where(eq(userSettingsTable.userId, userId))
@@ -189,16 +195,20 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 			settings.discordUserId,
 		);
 
-		const [_, embedResult] = await tryCatchAsync(async () => {
+		console.info("Created DM channel:", { channelId, userId });
+
+		const [res, embeddedError] = await tryCatchAsync(async () => {
 			return await discordClient.sendEmbed(channelId, {
 				title: "Test Message",
-				description: "This is a test message",
+				description: "Perfect! Looks like everything is working.",
 			});
 		});
 
-		if (embedResult) {
+		console.debug("Sent embed:", { res, embeddedError });
+
+		if (embeddedError) {
 			console.error("Error sending test message:", {
-				error: embedResult,
+				error: embeddedError,
 				userId,
 			});
 			return status(400, { error: "Failed to send test message to Discord" });

@@ -95,10 +95,22 @@ function MonitoringRow({ entry }: { entry: MonitoringEntry }) {
 
 			{expanded && (
 				<div className="border-border border-t bg-muted/30 p-4">
-					<div className="mb-2 font-medium text-sm">Payload</div>
-					<pre className="overflow-x-auto rounded-lg bg-brand-950 p-4 font-mono text-brand-100 text-xs">
-						{JSON.stringify(entry.payload, null, 2)}
-					</pre>
+					{entry.status === "failed" && entry.error && (
+						<>
+							<div className="mb-2 font-medium text-sm">Error</div>
+							<pre className="overflow-x-auto rounded-lg bg-brand-950 p-4 font-mono text-brand-100 text-xs">
+								{entry.error}
+							</pre>
+						</>
+					)}
+					{entry.payload && (
+						<>
+							<div className="mb-2 font-medium text-sm">Payload</div>
+							<pre className="overflow-x-auto rounded-lg bg-brand-950 p-4 font-mono text-brand-100 text-xs">
+								{JSON.stringify(entry.payload, null, 2)}
+							</pre>
+						</>
+					)}
 					<div className="mt-4 flex flex-wrap gap-4 text-sm">
 						<div>
 							<span className="text-muted-foreground">Triggered: </span>

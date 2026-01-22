@@ -3,17 +3,31 @@
 import { useUser } from "@clerk/nextjs";
 import { ArrowRight, CheckIcon, Sparkles, Zap } from "lucide-react";
 import Link from "next/link";
+import { useSonner } from "sonner";
 import { Heading } from "@/components/heading";
 import { MaxWidthWrapper } from "@/components/max-width-wrapper";
 import { ShinyButton } from "@/components/shiny-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PLANS } from "@/config";
+import { useUpgrade } from "@/hooks/use-user";
 
 export default function PricingPage() {
-	const { user } = useUser();
-	const isUpgraded = user?.publicMetadata?.isUpgraded;
+	const { user, isLoaded } = useUser();
+	const { toasts } = useSonner();
 
+	const upgrade = useUpgrade({
+		onError: () => {
+			const id = Math.random().toString(36).substring(2, 15);
+			toasts.push({
+				id,
+				title: "Failed to upgrade user",
+				description: "Please try again later.",
+				type: "error",
+				duration: 5000,
+			});
+		},
+	});
 	return (
 		<div className="relative overflow-hidden">
 			{/* Background decoration */}
@@ -85,7 +99,14 @@ export default function PricingPage() {
 								</li>
 							</ul>
 
-							{!user ? (
+							{!isLoaded && (
+								<div className="flex items-center justify-center">
+									<div className="size-10 animate-pulse rounded-full bg-brand-200" />
+									<div className="h-4 w-24 animate-pulse rounded bg-brand-200" />
+								</div>
+							)}
+
+							{isLoaded && !user ? (
 								<Link href="/sign-up">
 									<Button
 										className="h-12 w-full border-brand-200 text-brand-700 hover:bg-brand-50"
@@ -163,7 +184,7 @@ export default function PricingPage() {
 								<ShinyButton className="h-12 w-full" href="/sign-up">
 									Get started with Pro
 								</ShinyButton>
-							) : isUpgraded ? (
+							) : user?.publicMetadata?.plan === "PRO" ? (
 								<Button
 									className="h-12 w-full bg-brand-100 text-brand-700"
 									disabled
@@ -171,12 +192,21 @@ export default function PricingPage() {
 									You're on Pro!
 								</Button>
 							) : (
-								<Link href="/dashboard/settings">
-									<Button className="h-12 w-full bg-brand-700 hover:bg-brand-800">
-										Upgrade to Pro
-										<ArrowRight className="ml-2 size-4" />
-									</Button>
-								</Link>
+								<Button
+									className="h-12 w-full bg-brand-700 hover:bg-brand-800"
+									onClick={async () => {
+										await upgrade.mutateAsync().then(({ sessionUrl }) => {
+											if (!sessionUrl) {
+												throw new Error("Failed to get session URL");
+											}
+
+											window.location.href = sessionUrl;
+										});
+									}}
+								>
+									Upgrade to Pro
+									<ArrowRight className="ml-2 size-4" />
+								</Button>
 							)}
 						</div>
 					</div>

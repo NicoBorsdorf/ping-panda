@@ -38,7 +38,7 @@ function StatCard({
 	value: string;
 	description: string;
 	icon: React.ElementType;
-	trend?: { value: string; positive: boolean };
+	trend?: { value: number; positive: boolean };
 }) {
 	return (
 		<Card>
@@ -51,15 +51,19 @@ function StatCard({
 				<div className="flex items-center gap-1 text-muted-foreground text-xs">
 					{trend && (
 						<span
-							className={cn(
-								"flex items-center",
-								trend.positive ? "text-green-600" : "text-red-600",
-							)}
+							className={cn("flex items-center", {
+								"text-green-600": trend.positive,
+								"text-red-600": !trend.positive,
+								"text-muted-foreground": trend.value === 0,
+							})}
 						>
 							<TrendingUp
-								className={cn("mr-1 size-3", !trend.positive && "rotate-180")}
+								className={cn("mr-1 size-3", {
+									"rotate-180": !trend.positive,
+								})}
 							/>
-							{trend.value}
+							{trend.positive ? "+" : "-"}
+							{trend.value.toFixed(1)}% compared to yesterday
 						</span>
 					)}
 					<span>{description}</span>
@@ -73,7 +77,7 @@ export default function DashboardPage() {
 	const { data: events, isLoading: eventsLoading } = useEvents();
 	const { data: recentMonitoring, isLoading: monitoringLoading } =
 		useRecentMonitoring(5);
-	const { data: stats } = useMonitoringStats();
+	const { data: stats, isLoading, error } = useMonitoringStats();
 
 	const recentEvents = events?.slice(0, 5) ?? [];
 
@@ -91,25 +95,40 @@ export default function DashboardPage() {
 
 			{/* Stats Grid */}
 			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-				<StatCard
-					description="triggered today"
-					icon={Zap}
-					title="Events Today"
-					trend={{ value: "+12%", positive: true }}
-					value={stats?.totalToday.toString() ?? "0"}
-				/>
-				<StatCard
-					description="delivery success"
-					icon={CheckCircle}
-					title="Success Rate"
-					value={`${stats?.successRate ?? 0}%`}
-				/>
-				<StatCard
-					description="configured events"
-					icon={Calendar}
-					title="Active Events"
-					value={events?.length.toString() ?? "0"}
-				/>
+				{isLoading ? (
+					<div className="flex items-center justify-center py-8">
+						<div className="size-6 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+					</div>
+				) : error || !stats ? (
+					<div className="py-8 text-center">
+						<p className="text-muted-foreground text-sm">Error loading stats</p>
+					</div>
+				) : (
+					<>
+						<StatCard
+							description=""
+							icon={Zap}
+							title="Events Today"
+							trend={{
+								value: stats.changePercent,
+								positive: stats.changePercent > 0,
+							}}
+							value={stats?.totalToday.toString() ?? "0"}
+						/>
+						<StatCard
+							description="delivery success"
+							icon={CheckCircle}
+							title="Success Rate"
+							value={`${stats?.successRate ?? 0}%`}
+						/>
+						<StatCard
+							description="configured events"
+							icon={Calendar}
+							title="Active Events"
+							value={events?.length.toString() ?? "0"}
+						/>
+					</>
+				)}
 			</div>
 
 			{/* Content Grid */}
@@ -159,16 +178,21 @@ export default function DashboardPage() {
 										<div className="flex items-center gap-3">
 											<div
 												className="size-3 rounded-full"
-												style={{ backgroundColor: event.categoryColor }}
+												style={{ backgroundColor: event.category.color }}
 											/>
 											<div>
 												<p className="font-medium text-sm">{event.name}</p>
 												<p className="text-muted-foreground text-xs">
-													{event.categoryName}
+													{event.category.name}
 												</p>
 											</div>
 										</div>
-										<Badge variant="secondary">{event.categoryName}</Badge>
+										<Badge
+											style={{ backgroundColor: event.category.color }}
+											variant="secondary"
+										>
+											{event.category.name}
+										</Badge>
 									</div>
 								))}
 							</div>
@@ -233,7 +257,7 @@ export default function DashboardPage() {
 											</div>
 											<div className="min-w-0 flex-1">
 												<p className="truncate font-medium text-sm">
-													{entry.eventName}
+													{entry.name}
 												</p>
 												<p className="text-muted-foreground text-xs">
 													{entry.createdAt.toLocaleTimeString()}

@@ -296,15 +296,19 @@ export function DashboardSidebar() {
 										? "10 categories • 100 events"
 										: "3 categories • 10 events"}
 								</p>
-								<Link href="/dashboard/settings">
-									<Button
-										className="mt-2.5 w-full bg-brand-600 text-white hover:bg-brand-700"
-										onClick={() => setMobileMenuOpen(false)}
-										size="xs"
-									>
-										Upgrade to Pro
-									</Button>
-								</Link>
+								{mounted &&
+									isLoaded &&
+									user?.publicMetadata?.plan !== "PRO" && (
+										<Link href="/pricing">
+											<Button
+												className="mt-2.5 w-full bg-brand-600 text-white hover:bg-brand-700"
+												onClick={() => setMobileMenuOpen(false)}
+												size="xs"
+											>
+												Upgrade to Pro
+											</Button>
+										</Link>
+									)}
 							</>
 						)}
 					</div>

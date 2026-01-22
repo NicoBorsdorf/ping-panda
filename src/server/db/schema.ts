@@ -29,7 +29,6 @@ export const userSettingsTable = pgTable(
 			.notNull()
 			.references(() => userTable.id),
 		discordUserId: varchar({ length: 255 }),
-		timezone: varchar({ length: 255 }).notNull().default("Europe/Berlin"),
 
 		createdAt: timestamp().notNull().defaultNow(),
 		updatedAt: timestamp()
@@ -46,7 +45,6 @@ export const categoryTable = pgTable(
 		name: varchar({ length: 255 }).notNull(),
 		description: varchar({ length: 5000 }),
 		color: varchar({ length: 7 }).notNull().default("#6991D2"), // hex color
-		emoji: varchar({ length: 10 }), // optional emoji
 
 		userId: varchar()
 			.notNull()
@@ -69,7 +67,6 @@ export const eventTable = pgTable(
 		id: integer().primaryKey().generatedAlwaysAsIdentity(),
 		name: varchar({ length: 255 }).notNull(),
 		description: varchar({ length: 5000 }),
-		fields: jsonb().notNull().default({}), // JSON object of custom fields
 
 		categoryId: integer()
 			.notNull()
@@ -90,6 +87,29 @@ export const eventTable = pgTable(
 			table.categoryId,
 			table.userId,
 		),
+	],
+);
+
+export const payloadTable = pgTable(
+	"payload",
+	{
+		id: integer().primaryKey().generatedAlwaysAsIdentity(),
+		name: varchar({ length: 255 }).notNull(),
+		eventId: integer()
+			.notNull()
+			.references(() => eventTable.id, { onDelete: "cascade" }),
+		userId: varchar()
+			.notNull()
+			.references(() => userTable.id),
+
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		index("payload_name_idx").on(table.name),
+		index("payload_event_user_idx").on(table.eventId, table.userId),
 	],
 );
 

@@ -67,3 +67,24 @@ export function useTestDiscord({
 		onError,
 	});
 }
+
+export function useUpgrade({
+	onSuccess,
+	onError,
+}: {
+	onSuccess?: () => void;
+	onError?: () => void;
+} = {}) {
+	return useMutation({
+		mutationFn: async () => {
+			return await api.user.upgrade.post().then(({ status, data }) => {
+				if (status !== 200 || !data) {
+					throw new Error("Failed to upgrade user");
+				}
+				return data;
+			});
+		},
+		onSuccess,
+		onError,
+	});
+}

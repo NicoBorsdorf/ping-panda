@@ -1,11 +1,11 @@
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import {
 	AlertCircle,
 	AlertTriangle,
 	Check,
 	Crown,
-	Globe,
 	Loader2,
 	RefreshCw,
 	Sparkles,
@@ -26,94 +26,25 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-	Select,
-	SelectContent,
-	SelectGroup,
-	SelectItem,
-	SelectLabel,
-	SelectTrigger,
-} from "@/components/ui/select";
 import { env } from "@/env";
 import {
 	useSettings,
 	useTestDiscord,
 	useUpdateSettings,
-} from "@/hooks/use-settings";
+} from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
 
 interface FormErrors {
 	discordUserId?: string;
-	timezone?: string;
 	general?: string;
 }
 
-const TIMEZONES = [
-	{ label: "UTC-12:00 (Baker Island, US)", value: "Pacific/Baker" },
-	{
-		label: "UTC-11:00 (Pago Pago, American Samoa)",
-		value: "Pacific/Pago_Pago",
-	},
-	{ label: "UTC-10:00 (Honolulu, US)", value: "Pacific/Honolulu" },
-	{
-		label: "UTC-09:00 (Gambier Islands, French Polynesia)",
-		value: "Pacific/Gambier",
-	},
-	{ label: "UTC-09:00 (Anchorage, US)", value: "America/Anchorage" },
-	{ label: "UTC-08:00 (Los Angeles, US)", value: "America/Los_Angeles" },
-	{ label: "UTC-08:00 (Tijuana, MX)", value: "America/Tijuana" },
-	{ label: "UTC-07:00 (Denver, US)", value: "America/Denver" },
-	{ label: "UTC-07:00 (Phoenix, US)", value: "America/Phoenix" },
-	{ label: "UTC-06:00 (Chicago, US)", value: "America/Chicago" },
-	{ label: "UTC-06:00 (Mexico City, MX)", value: "America/Mexico_City" },
-	{ label: "UTC-05:00 (New York, US)", value: "America/New_York" },
-	{ label: "UTC-05:00 (Lima, Peru)", value: "America/Lima" },
-	{ label: "UTC-04:00 (Caracas, Venezuela)", value: "America/Caracas" },
-	{ label: "UTC-04:00 (Santiago, Chile)", value: "America/Santiago" },
-	{
-		label: "UTC-03:00 (Buenos Aires, Argentina)",
-		value: "America/Argentina/Buenos_Aires",
-	},
-	{ label: "UTC-03:00 (São Paulo, Brazil)", value: "America/Sao_Paulo" },
-	{
-		label: "UTC-02:00 (South Georgia & South Sandwich)",
-		value: "Atlantic/South_Georgia",
-	},
-	{ label: "UTC-01:00 (Azores, Portugal)", value: "Atlantic/Azores" },
-	{ label: "UTC±00:00 (London, UK)", value: "Europe/London" },
-	{ label: "UTC±00:00 (Reykjavik, Iceland)", value: "Atlantic/Reykjavik" },
-	{ label: "UTC+01:00 (Berlin, Germany)", value: "Europe/Berlin" },
-	{ label: "UTC+01:00 (Paris, France)", value: "Europe/Paris" },
-	{ label: "UTC+02:00 (Cairo, Egypt)", value: "Africa/Cairo" },
-	{ label: "UTC+02:00 (Athens, Greece)", value: "Europe/Athens" },
-	{ label: "UTC+03:00 (Moscow, Russia)", value: "Europe/Moscow" },
-	{ label: "UTC+03:00 (Nairobi, Kenya)", value: "Africa/Nairobi" },
-	{ label: "UTC+04:00 (Dubai, UAE)", value: "Asia/Dubai" },
-	{ label: "UTC+04:00 (Baku, Azerbaijan)", value: "Asia/Baku" },
-	{ label: "UTC+05:00 (Karachi, Pakistan)", value: "Asia/Karachi" },
-	{ label: "UTC+05:00 (Yekaterinburg, Russia)", value: "Asia/Yekaterinburg" },
-	{ label: "UTC+06:00 (Dhaka, Bangladesh)", value: "Asia/Dhaka" },
-	{ label: "UTC+06:00 (Almaty, Kazakhstan)", value: "Asia/Almaty" },
-	{ label: "UTC+07:00 (Bangkok, Thailand)", value: "Asia/Bangkok" },
-	{ label: "UTC+07:00 (Novosibirsk, Russia)", value: "Asia/Novosibirsk" },
-	{ label: "UTC+08:00 (Beijing, China)", value: "Asia/Shanghai" },
-	{ label: "UTC+08:00 (Singapore, SG)", value: "Asia/Singapore" },
-	{ label: "UTC+09:00 (Tokyo, Japan)", value: "Asia/Tokyo" },
-	{ label: "UTC+09:00 (Seoul, South Korea)", value: "Asia/Seoul" },
-	{ label: "UTC+10:00 (Sydney, Australia)", value: "Australia/Sydney" },
-	{ label: "UTC+10:00 (Vladivostok, Russia)", value: "Asia/Vladivostok" },
-	{ label: "UTC+11:00 (Noumea, New Caledonia)", value: "Pacific/Noumea" },
-	{ label: "UTC+11:00 (Solomon Islands)", value: "Pacific/Guadalcanal" },
-	{ label: "UTC+12:00 (Auckland, New Zealand)", value: "Pacific/Auckland" },
-	{ label: "UTC+12:00 (Fiji)", value: "Pacific/Fiji" },
-];
-
 export function SettingsForm() {
 	const { data: settings, isLoading, error } = useSettings();
+	const { user, isLoaded: isUserLoaded } = useUser();
 
 	const [formData, setFormData] = useState({
 		discordUserId: settings?.discordUserId ?? "",
-		timezone: settings?.timezone ?? "Europe/Berlin",
 	});
 	const [errors, setErrors] = useState<FormErrors>({});
 	const [isDirty, setIsDirty] = useState(false);
@@ -122,7 +53,6 @@ export function SettingsForm() {
 		if (settings) {
 			setFormData({
 				discordUserId: settings.discordUserId ?? "",
-				timezone: settings.timezone ?? "Europe/Berlin",
 			});
 		}
 	}, [settings]);
@@ -166,10 +96,6 @@ export function SettingsForm() {
 				"Invalid Discord User ID (should be 17-19 digits)";
 		}
 
-		if (!formData.timezone) {
-			newErrors.timezone = "Timezone is required";
-		}
-
 		setErrors(newErrors);
 		return Object.keys(newErrors).length === 0;
 	};
@@ -192,7 +118,6 @@ export function SettingsForm() {
 
 		await updateSettings.mutateAsync({
 			discordUserId: formData.discordUserId.trim(),
-			timezone: formData.timezone,
 		});
 	};
 
@@ -217,7 +142,6 @@ export function SettingsForm() {
 	};
 
 	// Mock plan - in real app, fetch from user data
-	const isPro = false;
 
 	if (isLoading) {
 		return <SettingsLoadingSkeleton />;
@@ -262,33 +186,39 @@ export function SettingsForm() {
 						<div
 							className={cn(
 								"flex size-12 items-center justify-center rounded-full",
-								isPro ? "bg-amber-100" : "bg-brand-100",
+								user?.publicMetadata?.plan === "PRO"
+									? "bg-amber-100"
+									: "bg-brand-100",
 							)}
 						>
 							<Crown
 								className={cn(
 									"size-6",
-									isPro ? "text-amber-600" : "text-brand-700",
+									user?.publicMetadata?.plan === "PRO"
+										? "text-amber-600"
+										: "text-brand-700",
 								)}
 							/>
 						</div>
 						<div>
 							<div className="flex items-center gap-2">
 								<h3 className="font-semibold text-brand-950 text-lg">
-									{isPro ? "Pro Plan" : "Free Plan"}
+									{user?.publicMetadata?.plan === "PRO"
+										? "Pro Plan"
+										: "Free Plan"}
 								</h3>
 								<span className="rounded-full bg-brand-100 px-2.5 py-0.5 font-medium text-brand-700 text-xs">
 									Current
 								</span>
 							</div>
 							<p className="mt-1 text-brand-700 text-sm">
-								{isPro
+								{user?.publicMetadata?.plan === "PRO"
 									? "10 event categories • 100 events per day"
 									: "3 event categories • 10 events per day"}
 							</p>
 						</div>
 					</div>
-					{!isPro && (
+					{user?.publicMetadata?.plan !== "PRO" && (
 						<Link href="/pricing">
 							<Button className="w-full bg-brand-700 hover:bg-brand-800 sm:w-auto">
 								<Sparkles className="mr-2 size-4" />
@@ -300,7 +230,13 @@ export function SettingsForm() {
 			</Card>
 
 			{/* Pro Plan Features */}
-			{!isPro && (
+			{!isUserLoaded && (
+				<div className="flex items-center justify-center">
+					<div className="size-10 animate-pulse rounded-full bg-brand-200" />
+					<div className="h-4 w-24 animate-pulse rounded bg-brand-200" />
+				</div>
+			)}
+			{isUserLoaded && user?.publicMetadata?.plan !== "PRO" && (
 				<Card>
 					<CardHeader>
 						<CardTitle className="flex items-center gap-2">
@@ -389,49 +325,6 @@ export function SettingsForm() {
 							settings, then right-click your username and select "Copy User
 							ID".
 						</p>
-					</div>
-
-					{/* Timezone Select */}
-					<div className="space-y-2">
-						<div className="flex items-center gap-2">
-							<Label htmlFor="timezone">Timezone</Label>
-							<Globe className="size-4 text-muted-foreground" />
-						</div>
-						<Select
-							id="timezone"
-							name="timezone"
-							onValueChange={(value) => {
-								if (!value) {
-									setErrors((prev) => ({
-										...prev,
-										timezone: "Timezone is required",
-									}));
-									return;
-								} else {
-									setErrors((prev) => ({ ...prev, timezone: undefined }));
-								}
-								handleInputChange("timezone", value);
-							}}
-							required
-							value={formData.timezone}
-						>
-							<SelectTrigger className="w-full max-w-96">
-								Select a timezone
-							</SelectTrigger>
-							<SelectContent align="center">
-								<SelectGroup className="no-scrollbar max-h-96 overflow-y-scroll">
-									<SelectLabel>Timezones</SelectLabel>
-									{TIMEZONES.map(({ label, value }) => (
-										<SelectItem key={value} value={value}>
-											{label}
-										</SelectItem>
-									))}
-								</SelectGroup>
-							</SelectContent>
-						</Select>
-						{errors.timezone && (
-							<p className="text-red-500 text-sm">{errors.timezone}</p>
-						)}
 					</div>
 				</CardContent>
 			</Card>

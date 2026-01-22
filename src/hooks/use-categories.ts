@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type z from "zod";
+import { eventKeys } from "@/hooks/use-events";
 import { api } from "@/lib/eden";
-import type {
-	createCategorySchema,
-	updateCategorySchema,
-} from "@/server/schemas";
+import type { categorySchema } from "@/server/schemas";
 
 // Query keys
 export const categoryKeys = {
@@ -39,7 +37,7 @@ export function useCreateCategory({
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async (input: z.infer<typeof createCategorySchema>) => {
+		mutationFn: async (input: z.infer<typeof categorySchema>) => {
 			return await api.category.post(input).then(({ status, data }) => {
 				if (status !== 201 || !data) {
 					throw new Error("Failed to create category");
@@ -72,7 +70,7 @@ export function useUpdateCategory({
 			input,
 		}: {
 			id: number;
-			input: z.infer<typeof updateCategorySchema>;
+			input: z.infer<typeof categorySchema>;
 		}) => {
 			return await api
 				.category({ id })
@@ -116,7 +114,9 @@ export function useDeleteCategory({
 		},
 		onSuccess: () => {
 			onSuccess?.();
+			// Invalidate both categories and events (events cascade delete with category)
 			queryClient.invalidateQueries({ queryKey: categoryKeys.lists() });
+			queryClient.invalidateQueries({ queryKey: eventKeys.lists() });
 		},
 		onError,
 	});

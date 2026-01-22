@@ -1,4 +1,4 @@
-import { and, count, eq, lte } from "drizzle-orm";
+import { and, count, eq, gte } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
 import { PLANS } from "@/config";
 import { env } from "@/env";
@@ -10,13 +10,14 @@ import {
 	categoryTable,
 	eventTable,
 	monitoringEntryTable,
+	payloadTable,
 	userSettingsTable,
 	userTable,
 } from "@/server/db/schema";
 import { eventV1Schema } from "@/server/schemas";
 
-export default async function POST(request: NextRequest) {
-	const token = request.headers.get("Authorization")?.split(" ")[1];
+export async function POST(request: NextRequest) {
+	const token = request.headers.get("Authorization");
 	if (!token) {
 		return new NextResponse(
 			JSON.stringify({
@@ -202,6 +203,118 @@ export default async function POST(request: NextRequest) {
 	}
 
 	const { event: dbEvent } = dbEventResult;
+
+	// validate event payload
+	const [validatePayloadResult, validatePayloadError] = await tryCatchAsync(
+		async () => {
+			const dbPayload = await db
+				.select({
+					name: payloadTable.name,
+				})
+				.from(payloadTable)
+				.where(
+					and(
+						eq(payloadTable.eventId, dbEvent.id),
+						eq(payloadTable.userId, userId),
+					),
+				);
+
+			if (dbPayload.length === 0 && data.payload) {
+				return {
+					valid: false as const,
+					error:
+						"Payload not found in event configuration but was provided in request.",
+				};
+			}
+
+			if (dbPayload.length > 0 && !data.payload) {
+				return {
+					valid: false as const,
+					error:
+						"Payload missing on request. Please check event configuration or provide needed payload fields.",
+				};
+			}
+
+			if (dbPayload.length > 0 && data.payload) {
+				const expectedKeys = dbPayload.map((p) => p.name);
+				const missingKeys = expectedKeys.filter((key) => !data.payload?.[key]);
+				if (missingKeys.length > 0) {
+					return {
+						valid: false as const,
+						error: `Payload fields "${missingKeys.join(", ")}" missing on request. Please check event configuration or provide needed payload fields.`,
+					};
+				}
+
+				const invalidKeys = Object.keys(data.payload).filter(
+					(key) => !expectedKeys.includes(key),
+				);
+				if (invalidKeys.length > 0) {
+					return {
+						valid: false as const,
+						error: `Payload fields "${invalidKeys.join(", ")}" not found in event configuration.`,
+					};
+				}
+			}
+
+			return {
+				valid: true as const,
+				payload: data.payload,
+			};
+		},
+	);
+
+	if (validatePayloadError) {
+		console.error("Error validating payload:", {
+			error: validatePayloadError,
+			userId,
+			apiKeyId,
+		});
+
+		await handleEventMonitoring({
+			success: false,
+			userId,
+			apiKeyId,
+			eventId: dbEvent.id,
+			categoryId: dbEvent.categoryId,
+			payload,
+			error: `An internal server error occurred while validating payload.`,
+		});
+
+		return new NextResponse(
+			JSON.stringify({
+				error: "Internal server error.",
+				message:
+					"An error occurred while validating payload. Please try again later.",
+			}),
+			{ status: 500 },
+		);
+	}
+
+	if (!validatePayloadResult.valid) {
+		console.error("Payload not valid.", {
+			userId,
+			apiKeyId,
+		});
+
+		await handleEventMonitoring({
+			success: false,
+			userId,
+			apiKeyId,
+			eventId: dbEvent.id,
+			categoryId: dbEvent.categoryId,
+			payload,
+			error: `Payload not valid. ${validatePayloadResult.error}`,
+		});
+
+		return new NextResponse(
+			JSON.stringify({
+				error: "Invalid Payload.",
+				message: validatePayloadResult.error,
+			}),
+			{ status: 400 },
+		);
+	}
+
 	const startOfMonth = new Date(
 		new Date().getFullYear(),
 		new Date().getMonth(),
@@ -215,17 +328,20 @@ export default async function POST(request: NextRequest) {
 				count: count(),
 				plan: userTable.plan,
 			})
-			.from(monitoringEntryTable)
-			.innerJoin(userTable, eq(monitoringEntryTable.userId, userTable.id))
-			.where(
+			.from(userTable)
+			.leftJoin(
+				monitoringEntryTable,
 				and(
-					eq(monitoringEntryTable.userId, userId),
+					eq(monitoringEntryTable.userId, userTable.id),
 					eq(monitoringEntryTable.eventId, dbEvent.id),
 					eq(monitoringEntryTable.status, "sent"),
-					lte(monitoringEntryTable.createdAt, startOfMonth),
+					gte(monitoringEntryTable.createdAt, startOfMonth),
 				),
 			)
+			.where(eq(userTable.id, userId))
 			.groupBy(userTable.id);
+
+		console.debug("quota", quota);
 
 		if (
 			quota &&
@@ -252,6 +368,17 @@ export default async function POST(request: NextRequest) {
 			event,
 			category,
 		});
+
+		await handleEventMonitoring({
+			success: false,
+			userId,
+			apiKeyId,
+			eventId: dbEvent.id,
+			categoryId: dbEvent.categoryId,
+			payload,
+			error: `An internal server error occurred while checking quota.`,
+		});
+
 		return new NextResponse(
 			JSON.stringify({ error: "Internal server error." }),
 			{ status: 500 },
@@ -266,6 +393,17 @@ export default async function POST(request: NextRequest) {
 			category,
 			plan: quotaResult.plan,
 		});
+
+		await handleEventMonitoring({
+			success: false,
+			userId,
+			apiKeyId,
+			eventId: dbEvent.id,
+			categoryId: dbEvent.categoryId,
+			payload,
+			error: `Quota exceeded for event ${event} in category ${category}.`,
+		});
+
 		return new NextResponse(
 			JSON.stringify({
 				error: `Quota exceeded for event ${event} in category ${category}.`,
@@ -276,8 +414,21 @@ export default async function POST(request: NextRequest) {
 
 	const dcClient = new DiscordClient(env.DISCORD_API_TOKEN);
 
-	const [_, sendDmError] = await tryCatchAsync(async () => {
-		const { id } = await dcClient.createDM(userId);
+	const [sendDmResult, sendDmError] = await tryCatchAsync(async () => {
+		const [userSettings] = await db
+			.select({ discordUserId: userSettingsTable.discordUserId })
+			.from(userSettingsTable)
+			.where(eq(userSettingsTable.userId, userId))
+			.limit(1);
+
+		if (!userSettings?.discordUserId) {
+			return {
+				success: false as const,
+				error: "Discord User ID not configured",
+			};
+		}
+
+		const { id } = await dcClient.createDM(userSettings.discordUserId);
 
 		await dcClient.sendEmbed(id, {
 			title: "Event Sent",
@@ -287,6 +438,11 @@ export default async function POST(request: NextRequest) {
 				value,
 			})),
 		});
+
+		return {
+			success: true as const,
+			channelId: id,
+		};
 	});
 
 	if (sendDmError) {
@@ -314,6 +470,32 @@ export default async function POST(request: NextRequest) {
 			{
 				status: 400,
 			},
+		);
+	}
+
+	if (!sendDmResult.success) {
+		console.error("Error sending DM:", {
+			error: sendDmResult.error,
+			userId,
+			apiKeyId,
+		});
+
+		await handleEventMonitoring({
+			success: false,
+			userId,
+			apiKeyId,
+			eventId: dbEvent.id,
+			categoryId: dbEvent.categoryId,
+			payload,
+			error: "Failed to send DM. Discord User ID not configured.",
+		});
+
+		return new NextResponse(
+			JSON.stringify({
+				error:
+					"Failed to send DM. Please check PingPanda monitoring for more details.",
+			}),
+			{ status: 400 },
 		);
 	}
 

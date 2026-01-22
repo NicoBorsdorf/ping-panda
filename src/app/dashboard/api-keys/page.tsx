@@ -320,7 +320,7 @@ export default function ApiKeysPage() {
 							your requests:
 						</p>
 						<pre className="mt-2 overflow-x-auto rounded bg-brand-950 p-3 font-mono text-brand-100 text-xs">
-							Authorization: Bearer YOUR_API_KEY
+							Authorization: YOUR_API_KEY
 						</pre>
 					</div>
 				</CardContent>
