@@ -1,14 +1,15 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, countDistinct, eq } from "drizzle-orm";
 import Elysia from "elysia";
 import { PLANS } from "@/config";
 import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
-import { categoryTable, eventTable, userTable } from "../db/schema";
 import {
-	createEventSchema,
-	intParamSchema,
-	updateEventSchema,
-} from "../schemas";
+	categoryTable,
+	eventTable,
+	userSettingsTable,
+	userTable,
+} from "../db/schema";
+import { eventSchema, intParamSchema, eventSchema } from "../schemas";
 import { getUserId } from "./auth";
 
 // Get event limit based on user plan
@@ -40,35 +41,37 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 			const [result, error] = await tryCatchAsync(async () => {
 				// Verify the category belongs to the user
 				const [category] = await db
-					.select({ id: categoryTable.id, name: categoryTable.name })
+					.select({
+						id: categoryTable.id,
+						name: categoryTable.name,
+						eventCount: countDistinct(eventTable.id),
+						userId: categoryTable.userId,
+					})
 					.from(categoryTable)
+					.leftJoin(
+						eventTable,
+						and(
+							eq(eventTable.categoryId, categoryTable.id),
+							eq(eventTable.userId, userId),
+						),
+					)
 					.where(
 						and(
 							eq(categoryTable.name, body.category),
 							eq(categoryTable.userId, userId),
 						),
-					)
-					.limit(1);
+					);
 
 				if (!category) {
 					return {
 						success: false as const,
-						error: `Category "${body.category}" not found or doesn't belong to you`,
+						error: `Category "${body.category}" not found`,
 					};
 				}
 
-				// Get user's event limit based on plan
 				const eventLimit = await getEventLimit(userId);
 
-				// Check if category has reached the event limit
-				const [eventCount] = await db
-					.select({ count: count() })
-					.from(eventTable)
-					.innerJoin(categoryTable, eq(eventTable.categoryId, categoryTable.id))
-					.where(eq(eventTable.userId, userId))
-					.limit(1);
-
-				if (eventCount && eventCount.count >= eventLimit) {
+				if (category.eventCount >= eventLimit) {
 					return {
 						success: false as const,
 						error: `Maximum of ${eventLimit} events per category allowed on your plan. Upgrade to Pro for more.`,
@@ -96,28 +99,16 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 				}
 
 				// Insert into database
-				const [inserted] = await db
-					.insert(eventTable)
-					.values({
-						userId,
-						categoryId: category.id,
-						name: body.name,
-						description: body.description,
-						fields: body.fields,
-					})
-					.returning();
+				await db.insert(eventTable).values({
+					userId,
+					categoryId: category.id,
+					name: body.name,
+					description: body.description,
+					fields: body.fields,
+				});
 
 				return {
 					success: true as const,
-					data: {
-						id: inserted.id,
-						name: inserted.name,
-						categoryId: inserted.categoryId,
-						description: inserted.description,
-						fields: inserted.fields,
-						createdAt: inserted.createdAt,
-						updatedAt: inserted.updatedAt,
-					},
 				};
 			});
 
@@ -130,10 +121,10 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 				return status(400, { error: result.error });
 			}
 
-			return status(201, result.data);
+			return status(201, { success: true });
 		},
 		{
-			body: createEventSchema,
+			body: eventSchema,
 		},
 	)
 
@@ -159,16 +150,54 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 					categoryName: categoryTable.name,
 					categoryColor: categoryTable.color,
 					categoryEmoji: categoryTable.emoji,
+					timezone: userSettingsTable.timezone,
 				})
 				.from(eventTable)
 				.innerJoin(categoryTable, eq(eventTable.categoryId, categoryTable.id))
-				.where(eq(eventTable.userId, userId));
+				.innerJoin(
+					userSettingsTable,
+					eq(eventTable.userId, userSettingsTable.userId),
+				)
+				.where(
+					and(eq(eventTable.userId, userId), eq(categoryTable.userId, userId)),
+				);
 
-			return events;
+			return events.map(
+				({
+					timezone,
+					createdAt,
+					updatedAt,
+					categoryColor,
+					categoryEmoji,
+					categoryId,
+					categoryName,
+					description,
+					fields,
+					id,
+					name,
+				}) => ({
+					id,
+					name,
+					description,
+					fields,
+					category: {
+						id: categoryId,
+						name: categoryName,
+						color: categoryColor,
+						emoji: categoryEmoji,
+					},
+					createdAt: new Date(
+						createdAt.toLocaleString("de-DE", { timeZone: timezone }),
+					),
+					updatedAt: new Date(
+						updatedAt.toLocaleString("de-DE", { timeZone: timezone }),
+					),
+				}),
+			);
 		});
 
 		if (error) {
-			console.error("Error getting events:", error);
+			console.error("Error getting events:", { error, userId });
 			return status(500, { error: "Failed to get events" });
 		}
 
@@ -199,6 +228,7 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 						createdAt: eventTable.createdAt,
 						updatedAt: eventTable.updatedAt,
 						categoryUserId: categoryTable.userId,
+						timezone: userSettingsTable.timezone,
 					})
 					.from(eventTable)
 					.innerJoin(categoryTable, eq(eventTable.categoryId, categoryTable.id))
@@ -211,22 +241,36 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 					.limit(1);
 
 				if (!foundEvent || foundEvent.categoryUserId !== userId) {
-					return null;
+					return {
+						success: false as const,
+						error: "Event not found or not authorized",
+					};
 				}
 
 				return {
-					id: foundEvent.id,
-					name: foundEvent.name,
-					description: foundEvent.description,
-					category: {
-						id: foundEvent.categoryId,
-						name: foundEvent.categoryName,
-						color: foundEvent.categoryColor,
-						emoji: foundEvent.categoryEmoji ?? null,
+					success: true as const,
+					data: {
+						id: foundEvent.id,
+						name: foundEvent.name,
+						description: foundEvent.description,
+						category: {
+							id: foundEvent.categoryId,
+							name: foundEvent.categoryName,
+							color: foundEvent.categoryColor,
+							emoji: foundEvent.categoryEmoji ?? null,
+						},
+						fields: foundEvent.fields,
+						createdAt: new Date(
+							foundEvent.createdAt.toLocaleString("de-DE", {
+								timeZone: foundEvent.timezone,
+							}),
+						),
+						updatedAt: new Date(
+							foundEvent.updatedAt.toLocaleString("de-DE", {
+								timeZone: foundEvent.timezone,
+							}),
+						),
 					},
-					fields: foundEvent.fields,
-					createdAt: foundEvent.createdAt,
-					updatedAt: foundEvent.updatedAt,
 				};
 			});
 
@@ -235,11 +279,12 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 				return status(500, { error: "Failed to get event" });
 			}
 
-			if (!event) {
-				return status(404, { error: "Event not found" });
+			if (!event.success) {
+				console.error("Event not found:", { params, userId });
+				return status(404, { error: event.error });
 			}
 
-			return status(200, event);
+			return status(200, event.data);
 		},
 		{
 			params: intParamSchema,
@@ -299,26 +344,19 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 				}
 
 				// Update the event
-				const [updated] = await db
+				await db
 					.update(eventTable)
 					.set({
 						name: body.name,
 						fields: body.fields ? JSON.stringify(body.fields) : undefined,
 					})
-					.where(eq(eventTable.id, Number(params.id)))
-					.returning();
+					.where(
+						and(eq(eventTable.id, params.id), eq(eventTable.userId, userId)),
+					);
 
 				return {
 					found: true as const,
 					duplicate: false as const,
-					data: {
-						id: updated.id,
-						name: updated.name,
-						categoryId: updated.categoryId,
-						fields: updated.fields,
-						createdAt: updated.createdAt,
-						updatedAt: updated.updatedAt,
-					},
 				};
 			});
 
@@ -328,18 +366,20 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 			}
 
 			if (!result.found) {
+				console.error("Event not found:", { params, userId });
 				return status(404, { error: "Event not found" });
 			}
 
 			if (result.duplicate) {
+				console.error("Event duplicate:", { params, userId });
 				return status(400, { error: result.error });
 			}
 
-			return status(200, result.data);
+			return status(200, { success: true });
 		},
 		{
 			params: intParamSchema,
-			body: updateEventSchema,
+			body: eventSchema,
 		},
 	)
 
@@ -382,15 +422,16 @@ export const eventRouter = new Elysia({ prefix: "/event", tags: ["event"] })
 			});
 
 			if (error) {
-				console.error("Error deleting event:", error);
+				console.error("Error deleting event:", { error, params, userId });
 				return status(500, { error: "Failed to delete event" });
 			}
 
 			if (!result.found) {
+				console.error("Event not found:", { params, userId });
 				return status(404, { error: "Event not found" });
 			}
 
-			return status(200, true);
+			return status(200, { success: true });
 		},
 		{
 			params: intParamSchema,

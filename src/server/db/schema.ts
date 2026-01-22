@@ -29,7 +29,7 @@ export const userSettingsTable = pgTable(
 			.notNull()
 			.references(() => userTable.id),
 		discordUserId: varchar({ length: 255 }),
-		timezone: varchar({ length: 255 }),
+		timezone: varchar({ length: 255 }).notNull().default("Europe/Berlin"),
 
 		createdAt: timestamp().notNull().defaultNow(),
 		updatedAt: timestamp()
@@ -44,6 +44,7 @@ export const categoryTable = pgTable(
 	{
 		id: integer().primaryKey().generatedAlwaysAsIdentity(),
 		name: varchar({ length: 255 }).notNull(),
+		description: varchar({ length: 5000 }),
 		color: varchar({ length: 7 }).notNull().default("#6991D2"), // hex color
 		emoji: varchar({ length: 10 }), // optional emoji
 
@@ -67,7 +68,7 @@ export const eventTable = pgTable(
 	{
 		id: integer().primaryKey().generatedAlwaysAsIdentity(),
 		name: varchar({ length: 255 }).notNull(),
-		description: varchar({ length: 500 }),
+		description: varchar({ length: 5000 }),
 		fields: jsonb().notNull().default({}), // JSON object of custom fields
 
 		categoryId: integer()
@@ -92,19 +93,23 @@ export const eventTable = pgTable(
 	],
 );
 
-export const apiKeyTable = pgTable("api_key", {
-	id: integer().primaryKey().generatedAlwaysAsIdentity(),
-	userId: varchar()
-		.notNull()
-		.references(() => userTable.id),
-	name: varchar({ length: 255 }).notNull(),
-	key: varchar({ length: 255 }).notNull().unique(),
-	description: varchar({ length: 500 }).notNull(),
-	active: boolean().notNull().default(true),
+export const apiKeyTable = pgTable(
+	"api_key",
+	{
+		id: integer().primaryKey().generatedAlwaysAsIdentity(),
+		userId: varchar()
+			.notNull()
+			.references(() => userTable.id),
+		name: varchar({ length: 255 }).notNull(),
+		key: varchar({ length: 255 }).notNull().unique(),
+		description: varchar({ length: 5000 }),
+		active: boolean().notNull().default(true),
 
-	createdAt: timestamp().notNull().defaultNow(),
-	lastUsedAt: timestamp(),
-});
+		createdAt: timestamp().notNull().defaultNow(),
+		lastUsedAt: timestamp(),
+	},
+	(table) => [index("api_key_user_idx").on(table.userId)],
+);
 
 export const monitoringEntryTable = pgTable("monitoring_entry", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),

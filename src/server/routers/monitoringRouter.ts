@@ -1,8 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import Elysia from "elysia";
+import z from "zod";
 import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
-import { categoryTable, eventTable, monitoringEntryTable } from "../db/schema";
+import {
+	categoryTable,
+	eventTable,
+	monitoringEntryTable,
+	userSettingsTable,
+} from "../db/schema";
 import { intParamSchema } from "../schemas";
 import { getUserId } from "./auth";
 
@@ -10,53 +16,29 @@ export const monitoringRouter = new Elysia({
 	prefix: "/monitoring",
 	tags: ["monitoring"],
 })
-	.get("/", async ({ status }) => {
-		const userId = await getUserId();
-		if (!userId) {
-			console.error("No user provided.");
-			return status(401, { error: "Unauthorized" });
-		}
-
-		const [entries, error] = await tryCatchAsync(async () => {
-			const entries = await db
-				.select({
-					id: monitoringEntryTable.id,
-					eventName: eventTable.name,
-					categoryName: categoryTable.name,
-					categoryColor: categoryTable.color,
-					categoryEmoji: categoryTable.emoji,
-					payload: eventTable.fields,
-					status: monitoringEntryTable.status,
-					createdAt: monitoringEntryTable.createdAt,
-				})
-				.from(monitoringEntryTable)
-				.innerJoin(eventTable, eq(monitoringEntryTable.eventId, eventTable.id))
-				.innerJoin(categoryTable, eq(eventTable.categoryId, categoryTable.id))
-				.where(eq(monitoringEntryTable.userId, userId));
-			return entries;
-		});
-
-		if (error) {
-			console.error("Error getting monitoring entries:", { error, userId });
-			return status(500, { error: "Failed to get monitoring entries" });
-		}
-
-		return status(200, entries);
-	})
 	.get(
-		"/:id",
-		async ({ params, status }) => {
+		"/",
+		async ({ status, query }) => {
 			const userId = await getUserId();
 			if (!userId) {
 				console.error("No user provided.");
 				return status(401, { error: "Unauthorized" });
 			}
 
+			const { page, limit } = query;
+			const offset = (page - 1) * limit;
+
 			const [result, error] = await tryCatchAsync(async () => {
-				const [entry] = await db
+				// Get total count
+				const [{ total }] = await db
+					.select({ total: count() })
+					.from(monitoringEntryTable)
+					.where(eq(monitoringEntryTable.userId, userId));
+
+				// Get paginated entries
+				const entries = await db
 					.select({
 						id: monitoringEntryTable.id,
-						eventId: eventTable.id,
 						eventName: eventTable.name,
 						categoryName: categoryTable.name,
 						categoryColor: categoryTable.color,
@@ -64,6 +46,8 @@ export const monitoringRouter = new Elysia({
 						payload: eventTable.fields,
 						status: monitoringEntryTable.status,
 						createdAt: monitoringEntryTable.createdAt,
+						updatedAt: monitoringEntryTable.updatedAt,
+						timezone: userSettingsTable.timezone,
 					})
 					.from(monitoringEntryTable)
 					.innerJoin(
@@ -71,44 +55,67 @@ export const monitoringRouter = new Elysia({
 						eq(monitoringEntryTable.eventId, eventTable.id),
 					)
 					.innerJoin(categoryTable, eq(eventTable.categoryId, categoryTable.id))
-					.where(
-						and(
-							eq(monitoringEntryTable.id, params.id),
-							eq(monitoringEntryTable.userId, userId),
-						),
-					);
-
-				if (!entry) {
-					return { found: false as const, entry: null };
-				}
+					.innerJoin(
+						userSettingsTable,
+						eq(monitoringEntryTable.userId, userSettingsTable.userId),
+					)
+					.where(eq(monitoringEntryTable.userId, userId))
+					.orderBy(desc(monitoringEntryTable.createdAt))
+					.limit(limit)
+					.offset(offset);
 
 				return {
-					found: true as const,
-					entry: {
-						...entry,
-						payload: entry.payload,
-						category: {
-							name: entry.categoryName,
-							color: entry.categoryColor,
-							emoji: entry.categoryEmoji,
-						},
+					entries: entries.map(
+						({
+							timezone,
+							createdAt,
+							updatedAt,
+							status,
+							categoryColor,
+							categoryEmoji,
+							categoryName,
+							eventName,
+							id,
+							payload,
+						}) => ({
+							id,
+							name: eventName,
+							category: {
+								name: categoryName,
+								color: categoryColor,
+								emoji: categoryEmoji,
+							},
+							payload,
+							status,
+							createdAt: new Date(
+								createdAt.toLocaleString("de-DE", { timeZone: timezone }),
+							),
+							updatedAt: new Date(
+								updatedAt.toLocaleString("de-DE", { timeZone: timezone }),
+							),
+						}),
+					),
+					pagination: {
+						page,
+						limit,
+						total,
+						totalPages: Math.ceil(total / limit),
 					},
 				};
 			});
 
 			if (error) {
-				console.error("Error getting monitoring entry:", { error, userId });
-				return status(500, { error: "Failed to get monitoring entry" });
+				console.error("Error getting monitoring entries:", { error, userId });
+				return status(500, { error: "Failed to get monitoring entries" });
 			}
 
-			if (!result.found) {
-				return status(404, { error: "Monitoring entry not found" });
-			}
-
-			return status(200, result.entry);
+			return status(200, result);
 		},
 		{
-			params: intParamSchema,
+			query: z.object({
+				page: z.coerce.number().int().positive().default(1),
+				limit: z.coerce.number().int().positive().max(100).default(25),
+			}),
 		},
 	)
 	.delete(
@@ -120,17 +127,15 @@ export const monitoringRouter = new Elysia({
 				return status(401, { error: "Unauthorized" });
 			}
 
-			const [result, error] = await tryCatchAsync(async () => {
-				const result = await db
+			const [_, error] = await tryCatchAsync(async () => {
+				await db
 					.delete(monitoringEntryTable)
 					.where(
 						and(
 							eq(monitoringEntryTable.userId, userId),
 							eq(monitoringEntryTable.id, params.id),
 						),
-					)
-					.returning();
-				return result;
+					);
 			});
 
 			if (error) {
@@ -138,7 +143,7 @@ export const monitoringRouter = new Elysia({
 				return status(500, { error: "Failed to delete monitoring entry" });
 			}
 
-			return status(200, result);
+			return status(200, { success: true });
 		},
 		{
 			params: intParamSchema,

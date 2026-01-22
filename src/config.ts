@@ -13,4 +13,6 @@ export const PLANS = {
 		categories: 10,
 		triggers: 100,
 	},
-};
+} as const;
+
+export const MAX_API_KEYS_PER_USER = 10 as const;

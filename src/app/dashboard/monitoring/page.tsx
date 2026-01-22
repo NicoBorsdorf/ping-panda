@@ -2,14 +2,20 @@
 
 import {
 	Activity,
+	AlertTriangle,
 	CheckCircle,
 	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	ChevronsLeft,
+	ChevronsRight,
 	Filter,
 	RefreshCw,
 	Search,
 	XCircle,
 } from "lucide-react";
 import { useState } from "react";
+import { LoadingSpinner } from "@/components/loading-spinner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,9 +31,12 @@ import type { api } from "@/lib/eden";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "../(shared)/status-badge";
 
-type MonitoringEntry = NonNullable<
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+
+type MonitoringResponse = NonNullable<
 	Awaited<ReturnType<typeof api.monitoring.get>>["data"]
->[number];
+>;
+type MonitoringEntry = MonitoringResponse["entries"][number];
 
 function MonitoringRow({ entry }: { entry: MonitoringEntry }) {
 	const [expanded, setExpanded] = useState(false);
@@ -58,13 +67,13 @@ function MonitoringRow({ entry }: { entry: MonitoringEntry }) {
 
 				<div className="min-w-0 flex-1">
 					<div className="flex items-center gap-2">
-						<span className="font-medium">{entry.eventName}</span>
+						<span className="font-medium">{entry.name}</span>
 						<Badge
 							className="text-xs capitalize"
-							style={{ backgroundColor: entry.categoryColor }}
+							style={{ backgroundColor: entry.category.color }}
 							variant="secondary"
 						>
-							{entry.categoryName}
+							{entry.category.name}
 						</Badge>
 					</div>
 					<div className="mt-0.5 text-muted-foreground text-sm">
@@ -108,12 +117,22 @@ function MonitoringRow({ entry }: { entry: MonitoringEntry }) {
 export default function MonitoringPage() {
 	const [search, setSearch] = useState("");
 	const [statusFilter, setStatusFilter] = useState<string | null>(null);
-	const { data: entries, isLoading, refetch, isFetching } = useMonitoring();
+	const [page, setPage] = useState(1);
+	const [pageSize, setPageSize] =
+		useState<(typeof PAGE_SIZE_OPTIONS)[number]>(25);
+
+	const { data, isLoading, refetch, isFetching, error } = useMonitoring({
+		page,
+		limit: pageSize,
+	});
+
+	const entries = data?.entries;
+	const pagination = data?.pagination;
 
 	const filteredEntries = entries?.filter((entry) => {
 		const matchesSearch =
-			entry.eventName.toLowerCase().includes(search.toLowerCase()) ||
-			entry.categoryName.toLowerCase().includes(search.toLowerCase());
+			entry.name.toLowerCase().includes(search.toLowerCase()) ||
+			entry.category.name.toLowerCase().includes(search.toLowerCase());
 		const matchesStatus = !statusFilter || entry.status === statusFilter;
 		return matchesSearch && matchesStatus;
 	});
@@ -123,6 +142,10 @@ export default function MonitoringPage() {
 		{ value: "sent", label: "Sent" },
 		{ value: "failed", label: "Failed" },
 	];
+
+	const totalPages = pagination?.totalPages ?? 1;
+	const canGoPrev = page > 1;
+	const canGoNext = page < totalPages;
 
 	return (
 		<div className="flex flex-col gap-8 p-6 pt-20 lg:p-8 lg:pt-8">
@@ -186,15 +209,18 @@ export default function MonitoringPage() {
 				<CardHeader className="border-b">
 					<CardTitle>Event History</CardTitle>
 					<CardDescription>
-						{filteredEntries?.length ?? 0} events found
+						{pagination
+							? `Showing ${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, pagination.total)} of ${pagination.total} events`
+							: `${filteredEntries?.length ?? 0} events found`}
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="p-0">
-					{isLoading ? (
+					{isLoading && (
 						<div className="flex items-center justify-center py-12">
-							<div className="size-8 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+							<LoadingSpinner className="size-8" />
 						</div>
-					) : !filteredEntries || filteredEntries.length === 0 ? (
+					)}
+					{!isLoading && (!filteredEntries || filteredEntries.length === 0) && (
 						<div className="py-12 text-center">
 							<Activity className="mx-auto size-12 text-muted-foreground" />
 							<h3 className="mt-4 font-semibold text-lg">No events found</h3>
@@ -204,15 +230,104 @@ export default function MonitoringPage() {
 									: "Events will appear here when triggered"}
 							</p>
 						</div>
-					) : (
-						<div className="divide-y divide-border">
-							{filteredEntries.map((entry) => (
-								<MonitoringRow entry={entry} key={entry.id} />
-							))}
-						</div>
 					)}
+
+					{!isLoading &&
+						!error &&
+						filteredEntries &&
+						filteredEntries.length > 0 && (
+							<div className="divide-y divide-border">
+								{filteredEntries.map((entry) => (
+									<MonitoringRow entry={entry} key={entry.id} />
+								))}
+							</div>
+						)}
+
+					{error && <ErrorState error={error} />}
 				</CardContent>
+
+				{/* Pagination */}
+				{pagination && pagination.total > 0 && (
+					<div className="flex flex-col items-center justify-between gap-4 border-t px-4 py-3 sm:flex-row">
+						{/* Page size selector */}
+						<div className="flex items-center gap-2 text-sm">
+							<span className="text-muted-foreground">Rows per page:</span>
+							<select
+								className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+								onChange={(e) => {
+									setPageSize(Number(e.target.value) as typeof pageSize);
+									setPage(1); // Reset to first page when changing page size
+								}}
+								value={pageSize}
+							>
+								{PAGE_SIZE_OPTIONS.map((size) => (
+									<option key={size} value={size}>
+										{size}
+									</option>
+								))}
+							</select>
+						</div>
+
+						{/* Page info and navigation */}
+						<div className="flex items-center gap-2">
+							<span className="text-muted-foreground text-sm">
+								Page {page} of {totalPages}
+							</span>
+							<div className="flex items-center gap-1">
+								<Button
+									disabled={!canGoPrev || isFetching}
+									onClick={() => setPage(1)}
+									size="icon"
+									variant="outline"
+								>
+									<ChevronsLeft className="size-4" />
+								</Button>
+								<Button
+									disabled={!canGoPrev || isFetching}
+									onClick={() => setPage((p) => p - 1)}
+									size="icon"
+									variant="outline"
+								>
+									<ChevronLeft className="size-4" />
+								</Button>
+								<Button
+									disabled={!canGoNext || isFetching}
+									onClick={() => setPage((p) => p + 1)}
+									size="icon"
+									variant="outline"
+								>
+									<ChevronRight className="size-4" />
+								</Button>
+								<Button
+									disabled={!canGoNext || isFetching}
+									onClick={() => setPage(totalPages)}
+									size="icon"
+									variant="outline"
+								>
+									<ChevronsRight className="size-4" />
+								</Button>
+							</div>
+						</div>
+					</div>
+				)}
 			</Card>
+		</div>
+	);
+}
+
+function ErrorState({ error }: { error: Error }) {
+	return (
+		<div className="flex flex-col items-center justify-center py-16">
+			<div className="mb-6 flex size-16 items-center justify-center rounded-full bg-red-100">
+				<AlertTriangle className="size-8 text-red-600" />
+			</div>
+			<h2 className="mb-2 font-semibold text-brand-950 text-xl">
+				Failed to load monitoring entries: {error.message}
+			</h2>
+			<p className="mb-6 max-w-md text-center text-muted-foreground">
+				We couldn&apos;t load the monitoring entries. Please check your
+				connection and try again.
+			</p>
 		</div>
 	);
 }

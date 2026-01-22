@@ -1,13 +1,12 @@
 import { and, count, eq } from "drizzle-orm";
 import Elysia from "elysia";
 import z from "zod";
+import { MAX_API_KEYS_PER_USER } from "@/config";
 import { tryCatchAsync } from "@/lib/utils";
 import { db } from "../db";
-import { apiKeyTable } from "../db/schema";
+import { apiKeyTable, userSettingsTable } from "../db/schema";
 import { createApiKeySchema, intParamSchema } from "../schemas";
 import { getUserId } from "./auth";
-
-const MAX_API_KEYS_PER_USER = 10 as const;
 
 // Generate a secure API key
 function generateApiKey(): string {
@@ -57,40 +56,33 @@ export const apiKeyRouter = new Elysia({
 				const newApiKey = generateApiKey();
 
 				// Insert into database
-				const [inserted] = await db
-					.insert(apiKeyTable)
-					.values({
-						userId,
-						name: body.name,
-						description: body.description ?? "",
-						key: newApiKey,
-					})
-					.returning();
+				await db.insert(apiKeyTable).values({
+					userId,
+					name: body.name,
+					description: body.description,
+					key: newApiKey,
+				});
 
 				return {
 					success: true as const,
-					data: {
-						id: inserted.id,
-						name: inserted.name,
-						description: inserted.description,
-						key: newApiKey, // Return full key only on creation
-						active: inserted.active,
-						lastUsedAt: inserted.lastUsedAt,
-						createdAt: inserted.createdAt,
-					},
+					key: newApiKey,
 				};
 			});
 
 			if (error) {
-				console.error("Error creating API key:", error);
+				console.error("Error creating API key:", { error, userId });
 				return status(500, { error: "Failed to create API key" });
 			}
 
 			if (!result.success) {
+				console.error("Error creating API key:", {
+					error: result.error,
+					userId,
+				});
 				return status(400, { error: result.error });
 			}
 
-			return status(201, result.data);
+			return status(201, { success: true, key: result.key });
 		},
 		{
 			body: createApiKeySchema,
@@ -107,20 +99,45 @@ export const apiKeyRouter = new Elysia({
 
 		const [keys, error] = await tryCatchAsync(async () => {
 			const apiKeys = await db
-				.select()
+				.select({
+					id: apiKeyTable.id,
+					name: apiKeyTable.name,
+					description: apiKeyTable.description,
+					key: apiKeyTable.key,
+					active: apiKeyTable.active,
+					lastUsedAt: apiKeyTable.lastUsedAt,
+					createdAt: apiKeyTable.createdAt,
+					timezone: userSettingsTable.timezone,
+				})
 				.from(apiKeyTable)
+				.innerJoin(
+					userSettingsTable,
+					eq(apiKeyTable.userId, userSettingsTable.userId),
+				)
 				.where(eq(apiKeyTable.userId, userId))
 				.orderBy(apiKeyTable.createdAt);
 
 			// Mask API keys for security
-			return apiKeys.map((e) => ({
-				...e,
-				key: maskApiKey(e.key),
-			}));
+			return apiKeys.map(
+				({ key, lastUsedAt, createdAt, timezone, ...rest }) => ({
+					...rest,
+					key: maskApiKey(key),
+					lastUsedAt: lastUsedAt
+						? new Date(
+								lastUsedAt.toLocaleString("de-DE", { timeZone: timezone }),
+							)
+						: null,
+					createdAt: new Date(
+						createdAt.toLocaleString("de-DE", {
+							timeZone: timezone,
+						}),
+					),
+				}),
+			);
 		});
 
 		if (error) {
-			console.error("Error listing API keys:", error);
+			console.error("Error listing API keys:", { error, userId });
 			return status(500, { error: "Failed to list API keys" });
 		}
 
@@ -139,8 +156,21 @@ export const apiKeyRouter = new Elysia({
 
 			const [key, error] = await tryCatchAsync(async () => {
 				const [apiKey] = await db
-					.select()
+					.select({
+						id: apiKeyTable.id,
+						name: apiKeyTable.name,
+						description: apiKeyTable.description,
+						key: apiKeyTable.key,
+						active: apiKeyTable.active,
+						lastUsedAt: apiKeyTable.lastUsedAt,
+						createdAt: apiKeyTable.createdAt,
+						timezone: userSettingsTable.timezone,
+					})
 					.from(apiKeyTable)
+					.innerJoin(
+						userSettingsTable,
+						eq(apiKeyTable.userId, userSettingsTable.userId),
+					)
 					.where(
 						and(
 							eq(apiKeyTable.id, Number(params.id)),
@@ -156,15 +186,28 @@ export const apiKeyRouter = new Elysia({
 				return {
 					...apiKey,
 					key: maskApiKey(apiKey.key),
+					createdAt: new Date(
+						apiKey.createdAt.toLocaleString("de-DE", {
+							timeZone: apiKey.timezone,
+						}),
+					),
+					lastUsedAt: apiKey.lastUsedAt
+						? new Date(
+								apiKey.lastUsedAt.toLocaleString("de-DE", {
+									timeZone: apiKey.timezone,
+								}),
+							)
+						: null,
 				};
 			});
 
 			if (error) {
-				console.error("Error getting API key:", error);
+				console.error("Error getting API key:", { error, params, userId });
 				return status(500, { error: "Failed to get API key" });
 			}
 
 			if (!key) {
+				console.error("API key not found:", { params, userId });
 				return status(404, { error: "API key not found" });
 			}
 
@@ -191,10 +234,7 @@ export const apiKeyRouter = new Elysia({
 					.select({ id: apiKeyTable.id })
 					.from(apiKeyTable)
 					.where(
-						and(
-							eq(apiKeyTable.id, Number(params.id)),
-							eq(apiKeyTable.userId, userId),
-						),
+						and(eq(apiKeyTable.id, params.id), eq(apiKeyTable.userId, userId)),
 					)
 					.limit(1);
 
@@ -203,39 +243,32 @@ export const apiKeyRouter = new Elysia({
 				}
 
 				// Update the key
-				const [updated] = await db
+				await db
 					.update(apiKeyTable)
 					.set({
 						name: body.name,
 						description: body.description,
 					})
-					.where(eq(apiKeyTable.id, Number(params.id)))
-					.returning();
+					.where(
+						and(eq(apiKeyTable.id, params.id), eq(apiKeyTable.userId, userId)),
+					);
 
 				return {
 					found: true as const,
-					data: {
-						id: updated.id,
-						name: updated.name,
-						description: updated.description,
-						key: maskApiKey(updated.key),
-						active: updated.active,
-						lastUsedAt: updated.lastUsedAt,
-						createdAt: updated.createdAt,
-					},
 				};
 			});
 
 			if (error) {
-				console.error("Error updating API key:", error);
+				console.error("Error updating API key:", { error, userId });
 				return status(500, { error: "Failed to update API key" });
 			}
 
 			if (!result.found) {
+				console.error("API key not found:", { params, userId });
 				return status(404, { error: "API key not found" });
 			}
 
-			return status(200, result.data);
+			return status(200, { success: true });
 		},
 		{
 			params: intParamSchema,
@@ -262,10 +295,7 @@ export const apiKeyRouter = new Elysia({
 					.select({ id: apiKeyTable.id })
 					.from(apiKeyTable)
 					.where(
-						and(
-							eq(apiKeyTable.id, Number(params.id)),
-							eq(apiKeyTable.userId, userId),
-						),
+						and(eq(apiKeyTable.id, params.id), eq(apiKeyTable.userId, userId)),
 					)
 					.limit(1);
 
@@ -276,21 +306,24 @@ export const apiKeyRouter = new Elysia({
 				// Delete the key
 				await db
 					.delete(apiKeyTable)
-					.where(eq(apiKeyTable.id, Number(params.id)));
+					.where(
+						and(eq(apiKeyTable.id, params.id), eq(apiKeyTable.userId, userId)),
+					);
 
 				return { found: true };
 			});
 
 			if (error) {
-				console.error("Error deleting API key:", error);
+				console.error("Error deleting API key:", { error, userId });
 				return status(500, { error: "Failed to delete API key" });
 			}
 
 			if (!result.found) {
+				console.error("API key not found:", { params, userId });
 				return status(404, { error: "API key not found" });
 			}
 
-			return status(200, true);
+			return status(200, { success: true });
 		},
 		{
 			params: intParamSchema,

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type z from "zod";
 import { api } from "@/lib/eden";
-import type { createEventSchema, updateEventSchema } from "@/server/schemas";
+import type { eventSchema } from "@/server/schemas";
 
 // Query keys
 export const eventKeys = {
@@ -29,32 +29,18 @@ export function useEvents() {
 	});
 }
 
-// Fetch single event
-export function useEvent(id: number) {
-	return useQuery({
-		queryKey: eventKeys.detail(id.toString()),
-		queryFn: async () => {
-			return api
-				.event({ id })
-				.get()
-				.then(({ status, data }) => {
-					if (status !== 200 || !data) {
-						throw new Error("Failed to get event");
-					}
-
-					return data;
-				});
-		},
-		enabled: !!id,
-	});
-}
-
 // Create event
-export function useCreateEvent() {
+export function useCreateEvent({
+	onError,
+	onSuccess,
+}: {
+	onError?: (error: Error) => void;
+	onSuccess?: () => void;
+} = {}) {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async (input: z.infer<typeof createEventSchema>) => {
+		mutationFn: async (input: z.infer<typeof eventSchema>) => {
 			return await api.event.post(input).then(({ status, data }) => {
 				if (status !== 201 || !data) {
 					throw new Error("Failed to create event");
@@ -64,8 +50,10 @@ export function useCreateEvent() {
 			});
 		},
 		onSuccess: () => {
+			onSuccess?.();
 			queryClient.invalidateQueries({ queryKey: eventKeys.lists() });
 		},
+		onError,
 	});
 }
 
@@ -79,7 +67,7 @@ export function useUpdateEvent() {
 			input,
 		}: {
 			id: number;
-			input: z.infer<typeof updateEventSchema>;
+			input: z.infer<typeof eventSchema>;
 		}) => {
 			return await api
 				.event({ id })
@@ -92,11 +80,8 @@ export function useUpdateEvent() {
 					return data;
 				});
 		},
-		onSuccess: (data) => {
+		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: eventKeys.lists() });
-			queryClient.invalidateQueries({
-				queryKey: eventKeys.detail(data.id.toString()),
-			});
 		},
 	});
 }

@@ -5,27 +5,34 @@ export const createApiKeySchema = z.object({
 	description: z.string().max(500).optional(),
 });
 
-export const updateEventSchema = z.object({
-	name: z.string().min(1).max(255),
-	fields: z.record(z.string(), z.string()).optional(),
-});
-
-export const createEventSchema = z.object({
-	category: z.string(),
-	color: z.string(),
-	name: z.string().min(1).max(255),
-	description: z.string().max(500).optional(),
-	fields: z.record(z.string(), z.string()).optional(),
+export const eventSchema = z.object({
+	category: z.string().min(1).max(255),
+	name: z
+		.string({ error: "Event name must be of type string." })
+		.min(1, { error: "Event name is required." })
+		.max(255, { error: "Event name is too long." }),
+	description: z
+		.string({ error: "Event description must be of type string." })
+		.max(5000, { error: "Event description is too long." })
+		.optional(),
+	payload: z.array(
+		z.object({
+			key: z.string().min(1).max(255),
+			type: z.enum(["string", "number", "boolean"]),
+		}),
+	),
 });
 
 export const createCategorySchema = z.object({
 	name: z.string().min(1).max(255),
+	description: z.string().max(5000).optional(),
 	color: z.string().optional(),
 	emoji: z.string().optional(),
 });
 
 export const updateCategorySchema = z.object({
 	name: z.string().min(1).max(255),
+	description: z.string().max(5000).optional(),
 	color: z.string().optional(),
 	emoji: z.string().optional(),
 });

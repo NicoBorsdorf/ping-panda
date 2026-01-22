@@ -64,7 +64,14 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 		}
 		const [result, error] = await tryCatchAsync(async () => {
 			const [settings] = await db
-				.select()
+				.select({
+					id: userSettingsTable.id,
+					userId: userSettingsTable.userId,
+					createdAt: userSettingsTable.createdAt,
+					updatedAt: userSettingsTable.updatedAt,
+					timezone: userSettingsTable.timezone,
+					discordUserId: userSettingsTable.discordUserId,
+				})
 				.from(userSettingsTable)
 				.where(eq(userSettingsTable.userId, userId))
 				.limit(1);
@@ -78,7 +85,22 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 
 			return {
 				found: true as const,
-				settings,
+				settings: {
+					id: settings.id,
+					userId: settings.userId,
+					createdAt: new Date(
+						settings.createdAt.toLocaleString("de-DE", {
+							timeZone: settings.timezone,
+						}),
+					),
+					updatedAt: new Date(
+						settings.updatedAt.toLocaleString("de-DE", {
+							timeZone: settings.timezone,
+						}),
+					),
+					timezone: settings.timezone,
+					discordUserId: settings.discordUserId,
+				},
 			};
 		});
 
@@ -151,11 +173,16 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 		}
 
 		if (!settings) {
+			console.error("User settings not found:", { userId });
 			return status(404, { error: "User settings not found" });
 		}
 
 		if (!settings.discordUserId) {
-			return status(404, { error: "Discord user ID not found" });
+			console.error("Discord user ID not found:", { userId });
+			return status(400, {
+				error: "No Discord user ID set.",
+				message: "Please set your Discord user ID in your settings.",
+			});
 		}
 
 		const { id: channelId } = await discordClient.createDM(
@@ -177,5 +204,5 @@ export const userRouter = new Elysia({ prefix: "/user", tags: ["user"] })
 			return status(400, { error: "Failed to send test message to Discord" });
 		}
 
-		return status(200, true);
+		return status(200, { success: true });
 	});
